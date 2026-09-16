@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const env = require('../config/env');
 const logger = require('../utils/logger');

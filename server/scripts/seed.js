@@ -53,6 +53,11 @@ async function seedAll() {
 }
 
 async function seedIfNeeded() {
+  const count = await industries.countDocuments();
+  if (count > 0) {
+    logger.info('content_seed_skipped', { industries: count });
+    return;
+  }
   await seedAll();
 }
 

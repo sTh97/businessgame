@@ -11,7 +11,8 @@ const { errorHandler } = require('./middleware/errorHandler');
 const authRoutes = require('./routes/authRoutes');
 const gameRoutes = require('./routes/gameRoutes');
 
-function createApp() {
+function createApp(options = {}) {
+  const serveClient = options.serveClient !== false;
   const app = express();
   app.set('trust proxy', 1);
   app.use(
@@ -47,16 +48,18 @@ function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/games', gameRoutes);
 
-  const clientDir = path.join(__dirname, '..', 'client');
-  app.use(
-    express.static(clientDir, {
-      maxAge: env.isProd ? '7d' : 0
-    })
-  );
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
-    res.sendFile(path.join(clientDir, 'index.html'));
-  });
+  if (serveClient) {
+    const clientDir = path.join(__dirname, '..', 'client');
+    app.use(
+      express.static(clientDir, {
+        maxAge: env.isProd ? '7d' : 0
+      })
+    );
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(clientDir, 'index.html'));
+    });
+  }
 
   app.use(errorHandler);
   return app;

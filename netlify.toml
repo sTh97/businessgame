@@ -1,0 +1,37 @@
+[build]
+  command = "npm install && node server/scripts/seed.js"
+  publish = "client"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+  NODE_ENV = "production"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = [
+    "express",
+    "mongoose",
+    "bcryptjs",
+    "jsonwebtoken",
+    "cookie-parser",
+    "cors",
+    "helmet",
+    "compression",
+    "express-rate-limit",
+    "dotenv",
+    "zod",
+    "serverless-http"
+  ]
+  included_files = ["server/**"]
+
+[functions.api]
+  timeout = 26
+
+# Browser calls /api/... ; Netlify rewrites those to the Express function.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true

@@ -1,5 +1,6 @@
 node_modules/
 .env
+.netlify/
 mongodb.txt
 *.log
 .DS_Store

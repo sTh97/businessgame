@@ -6,6 +6,7 @@ const authLimiter = rateLimit({
   max: env.rateLimitAuth.max,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   handler: (req, res) => {
     res.status(429).json({
       success: false,
