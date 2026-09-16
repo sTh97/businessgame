@@ -27,6 +27,13 @@ BES.prettyKey = (key) =>
 BES.uuid = () =>
   (crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
+BES.when = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString();
+};
+
 BES.escape = (s) =>
   String(s ?? '')
     .replace(/&/g, '&amp;')

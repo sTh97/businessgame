@@ -16,6 +16,7 @@ const Achievement = require('../models/Achievement');
 const UserAchievement = require('../models/UserAchievement');
 
 const Employee = require('../models/Employee');
+const LoginHistory = require('../models/LoginHistory');
 
 module.exports = {
   users: User,
@@ -34,5 +35,6 @@ module.exports = {
   marketStates: MarketState,
   achievements: Achievement,
   userAchievements: UserAchievement,
-  employees: Employee
+  employees: Employee,
+  loginHistory: LoginHistory
 };

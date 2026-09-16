@@ -25,6 +25,20 @@ npm run seed      # re-seed industry content
 
 Environment variables live in `.env` (see `.env.example`). MongoDB credentials are read from there at boot.
 
+## Admin
+
+Open `#/admin` (or `/#/admin`). Default login is username `admin` and password `12345678`. Override with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+
+The console reads `GET /v1/admin` and shows:
+
+- how many users have logged in
+- time spent on the site
+- games each player started
+- the level they are playing
+- login history (time, IP, client)
+
+Player time is accumulated while they are signed in (heartbeat every 25s). Login events are written on each successful player login.
+
 ## Deploy on Netlify
 
 The UI is served as static files from `client/`. Auth, saves, and gameplay run as a Netlify Function at `/api/*` against MongoDB Atlas.

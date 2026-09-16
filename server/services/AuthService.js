@@ -4,7 +4,8 @@ const jwt = require('jsonwebtoken');
 const env = require('../config/env');
 const logger = require('../utils/logger');
 const { AppError } = require('../utils/http');
-const { users, refreshTokens, passwordResets } = require('../repositories');
+const { users, refreshTokens, passwordResets, loginHistory } = require('../repositories');
+const { applyHeartbeat, clientIp, clientAgent } = require('../utils/presence');
 
 const EMAIL_RE =
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -89,14 +90,28 @@ async function register({ email, password }) {
   return { userId: String(user._id), email: user.email };
 }
 
-async function login({ email, password }, res) {
+async function login({ email, password }, req, res) {
   const e = validateEmail(email);
   const user = await users.findOne({ email: e });
   if (!user) throw new AppError('UNAUTHORIZED', 'Invalid email or password', 401);
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) throw new AppError('UNAUTHORIZED', 'Invalid email or password', 401);
-  user.lastLoginAt = new Date();
+  const now = new Date();
+  user.lastLoginAt = now;
+  user.lastSeenAt = now;
+  user.loginCount = (user.loginCount || 0) + 1;
   await user.save();
+  try {
+    await loginHistory.create({
+      userId: user._id,
+      email: user.email,
+      loggedInAt: now,
+      ip: clientIp(req),
+      userAgent: clientAgent(req)
+    });
+  } catch (err) {
+    logger.error('login_history_failed', { userId: String(user._id), message: err.message });
+  }
   const accessToken = signAccess(user._id);
   const refresh = await issueRefresh(user._id);
   setRefreshCookie(res, refresh);
@@ -134,16 +149,25 @@ async function refresh(req, res) {
 
 async function logout(req, res) {
   const token = req.cookies?.refreshToken;
+  let userId = req.userId || null;
   if (token) {
     try {
       const payload = jwt.verify(token, env.jwtRefreshSecret);
+      userId = userId || payload.sub;
       await refreshTokens.updateMany({ userId: payload.sub, jti: payload.jti }, { $set: { revokedAt: new Date() } });
     } catch {
       /* ignore */
     }
   }
+  if (userId) {
+    try {
+      await heartbeat(userId);
+    } catch {
+      /* ignore */
+    }
+  }
   clearAuthCookies(res);
-  logger.info('auth_logout', { userId: req.userId || null });
+  logger.info('auth_logout', { userId });
   return { message: 'Logged out' };
 }
 
@@ -190,6 +214,16 @@ async function me(userId) {
   return { userId: String(user._id), email: user.email };
 }
 
+async function heartbeat(userId) {
+  const user = await users.findById(userId);
+  if (!user) throw new AppError('UNAUTHORIZED', 'User not found', 401);
+  const next = applyHeartbeat(user);
+  user.timeSpentMs = next.timeSpentMs;
+  user.lastSeenAt = next.lastSeenAt;
+  await user.save();
+  return { timeSpentMs: user.timeSpentMs, lastSeenAt: user.lastSeenAt };
+}
+
 module.exports = {
   register,
   login,
@@ -198,6 +232,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   me,
+  heartbeat,
   signAccess,
   validateEmail
 };

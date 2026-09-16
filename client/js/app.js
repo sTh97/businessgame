@@ -46,10 +46,30 @@ function layout(content, { user, nav, hud, wrapClass } = {}) {
 
 function bindLogout() {
   document.getElementById('logout')?.addEventListener('click', async () => {
+    stopPresence();
     await BES.api.logout();
     state.user = null;
     location.hash = '#/login';
   });
+}
+
+let presenceTimer = null;
+
+function startPresence() {
+  if (presenceTimer) return;
+  const beat = () => {
+    if (document.visibilityState === 'hidden') return;
+    BES.api.heartbeat().catch(() => {});
+  };
+  beat();
+  presenceTimer = setInterval(beat, 25000);
+}
+
+function stopPresence() {
+  if (presenceTimer) {
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
 }
 
 function initials(name) {
@@ -125,6 +145,7 @@ async function requireUser() {
   }
   try {
     state.user = await BES.api.me();
+    startPresence();
     return state.user;
   } catch {
     location.hash = '#/login';
@@ -143,6 +164,7 @@ function renderLanding() {
       <div class="row hero-cta">
         <a class="btn btn-primary" href="#/register">Create account</a>
         <a class="btn" href="#/login">Log in</a>
+        <a class="btn btn-ghost" href="#/admin">Admin</a>
       </div>
     </section>
   `,
@@ -159,7 +181,7 @@ function renderAuth(mode) {
         ${mode === 'forgot' ? '' : `<div class="field"><label for="password">${mode === 'reset' ? 'New password' : 'Password'}</label><input id="password" type="password" required minlength="8" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" /></div>`}
         <button class="btn btn-primary btn-block" type="submit">${mode === 'register' ? 'Sign up' : mode === 'forgot' ? 'Send reset link' : mode === 'reset' ? 'Update password' : 'Log in'}</button>
         <p class="hint auth-links">
-          ${mode === 'login' ? `<a href="#/register">Need an account?</a> · <a href="#/forgot">Forgot password</a>` : `<a href="#/login">Back to login</a>`}
+          ${mode === 'login' ? `<a href="#/register">Need an account?</a> · <a href="#/forgot">Forgot password</a> · <a href="#/admin">Admin</a>` : `<a href="#/login">Back to login</a>`}
         </p>
         <p class="hint" id="auth-msg"></p>
       </form>
@@ -910,6 +932,183 @@ async function renderGame(gameId, tab = 'situation') {
   );
 }
 
+async function requireAdmin() {
+  if (!BES.http.adminToken) {
+    location.hash = '#/admin/login';
+    return false;
+  }
+  try {
+    await BES.api.adminMe();
+    return true;
+  } catch {
+    BES.api.adminLogout();
+    location.hash = '#/admin/login';
+    return false;
+  }
+}
+
+function renderAdminLogin() {
+  appEl.innerHTML = layout(`
+    <div class="auth-grid">
+      <form class="card" id="admin-form">
+        <div class="field"><label for="username">Username</label><input id="username" type="text" required autocomplete="username" /></div>
+        <div class="field"><label for="password">Password</label><input id="password" type="password" required minlength="8" autocomplete="current-password" /></div>
+        <button class="btn btn-primary btn-block" type="submit">Enter admin</button>
+        <p class="hint auth-links"><a href="#/login">Player login</a></p>
+        <p class="hint" id="auth-msg"></p>
+      </form>
+      <section class="hero auth-copy">
+        <h1>Operator console</h1>
+        <p class="auth-pitch">See who signed in, how long they stayed, which games they started, and the level they are playing.</p>
+      </section>
+    </div>
+  `);
+  document.getElementById('admin-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById('auth-msg');
+    try {
+      await BES.api.adminLogin(username.value, password.value);
+      location.hash = '#/admin';
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
+}
+
+function statusBadge(status) {
+  return `<span class="badge ${BES.escape(status || '')}">${BES.escape(status || 'unknown')}</span>`;
+}
+
+async function renderAdmin() {
+  const ok = await requireAdmin();
+  if (!ok) return;
+  const data = await BES.api.adminOverview();
+  const totals = data.totals || {};
+  const users = data.users || [];
+  const history = data.loginHistory || [];
+
+  const userRows = users
+    .map((u) => {
+      const games = (u.games || [])
+        .map(
+          (g) =>
+            `<li><strong>${BES.escape(g.companyName)}</strong> · ${BES.escape(g.industry)} · Lv ${g.currentLevel} ${statusBadge(g.status)}</li>`
+        )
+        .join('');
+      const logins = (u.loginHistory || [])
+        .map((row) => `<li>${BES.escape(BES.when(row.loggedInAt))} · ${BES.escape(row.ip || 'ip unknown')}</li>`)
+        .join('');
+      return `
+        <tr>
+          <td>
+            <strong>${BES.escape(u.email)}</strong>
+            <div class="muted">${BES.escape(BES.when(u.lastLoginAt))}</div>
+          </td>
+          <td>${u.loginCount || 0}</td>
+          <td>${BES.escape(u.timeSpent || '0s')}</td>
+          <td>${u.gamesInitiated || 0}</td>
+          <td>${u.playingLevel != null ? `Lv ${u.playingLevel}` : '—'}${u.highestLevel ? `<div class="muted">Peak ${u.highestLevel}</div>` : ''}</td>
+        </tr>
+        <tr class="admin-detail">
+          <td colspan="5">
+            <div class="admin-detail-grid">
+              <div>
+                <h3>Games</h3>
+                ${games ? `<ul class="admin-list">${games}</ul>` : `<p class="muted">No games yet</p>`}
+              </div>
+              <div>
+                <h3>Recent logins</h3>
+                ${logins ? `<ul class="admin-list">${logins}</ul>` : `<p class="muted">No login history yet</p>`}
+              </div>
+            </div>
+          </td>
+        </tr>`;
+    })
+    .join('');
+
+  const historyRows = history
+    .map(
+      (row) => `
+      <tr>
+        <td>${BES.escape(row.email)}</td>
+        <td>${BES.escape(BES.when(row.loggedInAt))}</td>
+        <td>${BES.escape(row.ip || '—')}</td>
+        <td class="admin-ua">${BES.escape(row.userAgent || '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  appEl.innerHTML = layout(
+    `
+    <section class="hero hero-compact">
+      <h1>Admin</h1>
+      <p>Live player activity: logins, time on site, games started, and current level.</p>
+    </section>
+    <div class="kpi-grid admin-kpis">
+      <div class="kpi"><div class="label">${BES.icon('people')} Users logged in</div><div class="value">${totals.usersLoggedIn || 0}</div><div class="delta">${totals.registeredUsers || 0} registered</div></div>
+      <div class="kpi"><div class="label">${BES.icon('clock')} Time on site</div><div class="value">${BES.escape(totals.totalTimeSpent || '0s')}</div><div class="delta">${totals.totalLogins || 0} logins</div></div>
+      <div class="kpi"><div class="label">${BES.icon('briefcase')} Games started</div><div class="value">${totals.gamesInitiated || 0}</div></div>
+      <div class="kpi"><div class="label">${BES.icon('star')} Players</div><div class="value">${users.length}</div></div>
+    </div>
+    <section class="card admin-panel">
+      <h2>Players</h2>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Logins</th>
+              <th>Time on site</th>
+              <th>Games</th>
+              <th>Playing</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${userRows || `<tr><td colspan="5" class="muted">No players yet</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="card admin-panel">
+      <h2>Login history</h2>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>When</th>
+              <th>IP</th>
+              <th>Client</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${historyRows || `<tr><td colspan="4" class="muted">No logins recorded yet</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `,
+    {
+      wrapClass: 'wrap-admin',
+      hud: `
+      <header class="topbar">
+        <a class="brand" href="#/admin">
+          <span class="brand-mark" aria-hidden="true">${BES.icon('shield')}</span>
+          <span class="brand-name">Admin</span>
+        </a>
+        <div class="row">
+          <span class="muted hud-email">admin</span>
+          <button class="btn btn-ghost" id="logout">Log out</button>
+        </div>
+      </header>`
+    }
+  );
+  document.getElementById('logout')?.addEventListener('click', () => {
+    BES.api.adminLogout();
+    location.hash = '#/admin/login';
+  });
+}
+
 async function render() {
   const r = route();
   try {
@@ -918,6 +1117,8 @@ async function render() {
     if (r.path === '/register') return renderAuth('register');
     if (r.path === '/forgot') return renderAuth('forgot');
     if (r.path === '/reset-password') return renderAuth('reset');
+    if (r.path === '/admin/login') return renderAdminLogin();
+    if (r.path === '/admin') return renderAdmin();
     if (r.path === '/businesses') return renderBusinesses();
     if (r.path === '/new') return renderCreate();
     if (r.parts[0] === 'game' && r.parts[1]) return renderGame(r.parts[1], r.parts[2] || 'situation');
@@ -928,4 +1129,12 @@ async function render() {
 }
 
 window.addEventListener('hashchange', render);
+window.addEventListener('pagehide', () => {
+  if (BES.http.accessToken) BES.api.heartbeat().catch(() => {});
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && BES.http.accessToken) {
+    BES.api.heartbeat().catch(() => {});
+  }
+});
 render();

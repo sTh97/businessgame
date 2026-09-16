@@ -12,5 +12,6 @@ router.post('/logout', authController.logout);
 router.post('/forgot-password', authLimiter, authController.forgot);
 router.post('/reset-password', authLimiter, authController.reset);
 router.get('/me', authRequired, authController.me);
+router.post('/heartbeat', authRequired, authController.heartbeat);
 
 module.exports = router;

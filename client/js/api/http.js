@@ -2,11 +2,18 @@ window.BES = window.BES || {};
 
 const http = {
   accessToken: sessionStorage.getItem('bes_access') || null,
+  adminToken: sessionStorage.getItem('bes_admin') || null,
 
   setToken(token) {
     this.accessToken = token;
     if (token) sessionStorage.setItem('bes_access', token);
     else sessionStorage.removeItem('bes_access');
+  },
+
+  setAdminToken(token) {
+    this.adminToken = token;
+    if (token) sessionStorage.setItem('bes_admin', token);
+    else sessionStorage.removeItem('bes_admin');
   },
 
   async request(path, { method = 'GET', body, retry = true } = {}) {
@@ -23,7 +30,7 @@ const http = {
       body: body !== undefined ? JSON.stringify(body) : undefined
     });
 
-    if (res.status === 401 && retry && !path.startsWith('/api/auth/login')) {
+    if (res.status === 401 && retry && !path.startsWith('/api/auth/login') && !path.startsWith('/v1/admin')) {
       const refreshed = await this.refresh();
       if (refreshed) return this.request(path, { method, body, retry: false });
     }
@@ -53,6 +60,27 @@ const http = {
       this.setToken(null);
       return false;
     }
+  },
+
+  async adminRequest(path, { method = 'GET', body } = {}) {
+    const headers = { Accept: 'application/json' };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (this.adminToken) headers.Authorization = `Bearer ${this.adminToken}`;
+    const res = await fetch(path, {
+      method,
+      headers,
+      credentials: 'include',
+      body: body !== undefined ? JSON.stringify(body) : undefined
+    });
+    const json = await res.json().catch(() => ({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Bad response' } }));
+    if (!res.ok || json.success === false) {
+      const err = new Error(json.error?.message || 'Request failed');
+      err.code = json.error?.code || 'INTERNAL_ERROR';
+      err.status = res.status;
+      err.payload = json.error;
+      throw err;
+    }
+    return json.data;
   }
 };
 
@@ -68,6 +96,17 @@ BES.api = {
     http.setToken(null);
   },
   me: () => http.request('/api/auth/me'),
+  heartbeat: () => http.request('/api/auth/heartbeat', { method: 'POST' }),
+  adminLogin: async (username, password) => {
+    const data = await http.adminRequest('/v1/admin/login', { method: 'POST', body: { username, password } });
+    http.setAdminToken(data.accessToken);
+    return data;
+  },
+  adminLogout: () => {
+    http.setAdminToken(null);
+  },
+  adminMe: () => http.adminRequest('/v1/admin/me'),
+  adminOverview: () => http.adminRequest('/v1/admin'),
   forgot: (email) => http.request('/api/auth/forgot-password', { method: 'POST', body: { email } }),
   reset: (token, newPassword) => http.request('/api/auth/reset-password', { method: 'POST', body: { token, newPassword } }),
   games: (status) => http.request(`/api/games${status ? `?status=${encodeURIComponent(status)}` : ''}`),

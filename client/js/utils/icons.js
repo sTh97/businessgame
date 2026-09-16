@@ -44,7 +44,8 @@ window.BES = window.BES || {};
     logout: svg('<path d="M10 4.5H6.2A2.2 2.2 0 0 0 4 6.7v10.6A2.2 2.2 0 0 0 6.2 19.5H10M10.5 12H20M16.4 8.4 20 12l-3.6 3.6"/>'),
     close: svg('<path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/>'),
     situation: svg('<circle cx="12" cy="12" r="8.2"/><path d="M12 8.2V12l2.6 2.6"/>'),
-    user: svg('<circle cx="12" cy="8.2" r="3.3"/><path d="M5.2 19.4c.8-3.6 3.2-5.4 6.8-5.4s6 1.8 6.8 5.4"/>')
+    user: svg('<circle cx="12" cy="8.2" r="3.3"/><path d="M5.2 19.4c.8-3.6 3.2-5.4 6.8-5.4s6 1.8 6.8 5.4"/>'),
+    clock: svg('<circle cx="12" cy="12" r="8.2"/><path d="M12 7.2V12l3.2 2"/>')
   };
 
   const INDUSTRY = {

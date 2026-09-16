@@ -29,7 +29,13 @@
 [functions.api]
   timeout = 26
 
-# Browser calls /api/... ; Netlify rewrites those to the Express function.
+# Browser calls /api/... and /v1/admin; Netlify rewrites those to the Express function.
+[[redirects]]
+  from = "/v1/*"
+  to = "/.netlify/functions/api/v1/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"

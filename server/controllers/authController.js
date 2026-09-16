@@ -15,7 +15,7 @@ async function register(req, res, next) {
 async function login(req, res, next) {
   try {
     const body = parse(loginSchema, req.body);
-    const data = await AuthService.login(body, res);
+    const data = await AuthService.login(body, req, res);
     return ok(res, data);
   } catch (err) {
     next(err);
@@ -69,4 +69,13 @@ async function me(req, res, next) {
   }
 }
 
-module.exports = { register, login, refresh, logout, forgot, reset, me };
+async function heartbeat(req, res, next) {
+  try {
+    const data = await AuthService.heartbeat(req.userId);
+    return ok(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, login, refresh, logout, forgot, reset, me, heartbeat };

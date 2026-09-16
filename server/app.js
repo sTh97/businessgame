@@ -10,6 +10,7 @@ const { requestLogger } = require('./middleware/requestLogger');
 const { errorHandler } = require('./middleware/errorHandler');
 const authRoutes = require('./routes/authRoutes');
 const gameRoutes = require('./routes/gameRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 function createApp(options = {}) {
   const serveClient = options.serveClient !== false;
@@ -47,6 +48,8 @@ function createApp(options = {}) {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/games', gameRoutes);
+  app.use('/v1/admin', adminRoutes);
+  app.use('/api/v1/admin', adminRoutes);
 
   if (serveClient) {
     const clientDir = path.join(__dirname, '..', 'client');
@@ -56,7 +59,7 @@ function createApp(options = {}) {
       })
     );
     app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
+      if (req.path.startsWith('/api/') || req.path.startsWith('/v1/')) return next();
       res.sendFile(path.join(clientDir, 'index.html'));
     });
   }

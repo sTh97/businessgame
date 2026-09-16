@@ -85,6 +85,8 @@ const env = {
     from: process.env.SMTP_FROM || 'noreply@businessempire.local'
   },
   publicAppUrl: process.env.PUBLIC_APP_URL || 'http://localhost:3000',
+  adminUsername: process.env.ADMIN_USERNAME || 'admin',
+  adminPassword: process.env.ADMIN_PASSWORD || '12345678',
   isProd: (process.env.NODE_ENV || 'development') === 'production'
 };
 

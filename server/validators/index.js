@@ -7,6 +7,11 @@ const registerSchema = z.object({
 
 const loginSchema = registerSchema;
 
+const adminLoginSchema = z.object({
+  username: z.string().min(1).max(80),
+  password: z.string().min(1).max(200)
+});
+
 const forgotSchema = z.object({
   email: z.string().min(3).max(254)
 });
@@ -64,6 +69,7 @@ function parse(schema, payload) {
 module.exports = {
   registerSchema,
   loginSchema,
+  adminLoginSchema,
   forgotSchema,
   resetSchema,
   createGameSchema,

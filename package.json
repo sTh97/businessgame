@@ -7,7 +7,7 @@
     "start": "node --use-system-ca server/server.js",
     "dev": "node --watch --use-system-ca server/server.js",
     "seed": "node --use-system-ca server/scripts/seed.js",
-    "test": "node --test server/tests/engines.test.js"
+    "test": "node --test server/tests/engines.test.js server/tests/admin.test.js"
   },
   "engines": {
     "node": ">=18"
