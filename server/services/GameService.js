@@ -6,6 +6,8 @@ const workforceEngine = require('../game-engine/workforceEngine');
 const financialEngine = require('../game-engine/financialEngine');
 const simulationEngine = require('../game-engine/simulationEngine');
 const marketEngine = require('../game-engine/marketEngine');
+const { defaultFlags, defaultProperty } = require('../game-engine/flags');
+const competitorEngine = require('../game-engine/competitorEngine');
 const IndustryConfigService = require('./IndustryConfigService');
 const SaveGameService = require('./SaveGameService');
 const {
@@ -19,7 +21,8 @@ const {
   financialHistory,
   marketStates,
   userAchievements,
-  achievements
+  achievements,
+  employees: employeeCol
 } = require('../repositories');
 
 const UUID_RE =
@@ -95,13 +98,16 @@ async function createGame(userId, body) {
     gameMonth: 1,
     state: previewed.startingState,
     industryState: { ...(cfg.startingIndustryState || {}) },
+    flags: defaultFlags(),
+    property: defaultProperty(),
     pendingConsequences: [],
     currentEvent: openingId ? { eventId: openingId, status: 'pending' } : { eventId: null, status: 'none' },
     score: 0
   };
 
-  const workforceRows = (cfg.startingWorkforce || []).map((w) => ({ ...w }));
-  workforceEngine.recomputeWorkforce(stateDoc.state, workforceRows, cfg.roles);
+  const peopleRows = (cfg.startingPeople || []).map((p) => ({ ...p }));
+  const workforceRows = workforceEngine.syncAggregatesFromPeople(peopleRows, cfg.roles);
+  workforceEngine.recomputeWorkforce(stateDoc.state, workforceRows, cfg.roles, stateDoc.property, stateDoc.flags, peopleRows);
   financialEngine.recompute(stateDoc.state, cfg, cfg.initialMarket);
   const market = { asOfLevel: 1, ...marketEngine.initialMarket(cfg) };
 
@@ -110,6 +116,7 @@ async function createGame(userId, body) {
       game: gameDoc,
       state: stateDoc,
       workforceRows,
+      peopleRows,
       market,
       session
     })
@@ -130,6 +137,8 @@ function serializeState(gs, game) {
     phaseLabel: phaseLabel(phaseForLevel(level)),
     state: gs.state,
     industryState: gs.industryState,
+    flags: gs.flags || defaultFlags(),
+    property: gs.property || defaultProperty(),
     pendingConsequences: gs.pendingConsequences,
     currentEvent: gs.currentEvent,
     score: gs.score,
@@ -232,10 +241,11 @@ async function submitDecision(userId, gameId, body) {
 
   const event = await events.findById(eventId).lean();
   const content = await IndustryConfigService.loadContent(game.industry);
-  const [wf, proj, market, unlocked] = await Promise.all([
+  const [wf, people, proj, market, unlocked] = await Promise.all([
     workforce.find({ gameId: game._id }).lean(),
+    employeeCol.find({ gameId: game._id }).lean(),
     projects.find({ gameId: game._id }).lean(),
-    marketStates.findOne({ gameId: game._id }).sort({ asOfLevel: -1 }).lean(),
+    marketStates.findOne({ gameId: game._id }).sort({ asOfLevel: -1, _id: -1 }).lean(),
     userAchievements.find({ gameId: game._id }).lean()
   ]);
 
@@ -247,6 +257,7 @@ async function submitDecision(userId, gameId, body) {
     industryConfig: content.industry.industryConfig,
     events: content.events,
     workforce: wf,
+    people,
     projects: proj,
     market,
     achievements: content.achievements,
@@ -264,6 +275,8 @@ async function submitDecision(userId, gameId, body) {
       phaseLabel: phaseLabel(computed.phase),
       state: computed.newGameState.state,
       industryState: computed.newGameState.industryState,
+      flags: computed.newGameState.flags,
+      property: computed.newGameState.property,
       currentEvent: computed.newGameState.currentEvent,
       score: computed.newGameState.score,
       status: computed.gamePatch.status
@@ -366,8 +379,137 @@ async function listProjects(userId, gameId) {
 
 async function listEmployees(userId, gameId) {
   await assertOwner(userId, gameId);
-  const rows = await workforce.find({ gameId }).lean();
-  return { workforce: rows };
+  const [rows, people] = await Promise.all([
+    workforce.find({ gameId }).lean(),
+    employeeCol.find({ gameId }).lean()
+  ]);
+  return { workforce: rows, people };
+}
+
+async function listPeople(userId, gameId) {
+  const game = await assertOwner(userId, gameId);
+  const industry = await IndustryConfigService.getIndustry(game.industry);
+  const people = await employeeCol.find({ gameId }).lean();
+  return { people, roles: industry.industryConfig.roles || [] };
+}
+
+async function workplace(userId, gameId) {
+  const game = await assertOwner(userId, gameId);
+  const gs = await gameStates.findOne({ gameId: game._id }).lean();
+  const people = await employeeCol.find({ gameId }).lean();
+  return {
+    property: gs.property || defaultProperty(),
+    flags: gs.flags || defaultFlags(),
+    people
+  };
+}
+
+async function competitors(userId, gameId) {
+  await assertOwner(userId, gameId);
+  const row = await marketStates.findOne({ gameId }).sort({ asOfLevel: -1, _id: -1 }).lean();
+  const market = competitorEngine.ensureCompetitors(row || {});
+  return { competitors: market.competitors, intel: market.intel, competitionIntensity: market.competitionIntensity };
+}
+
+async function submitAction(userId, gameId, body) {
+  const { type, payload, expectedStateVersion, idempotencyKey } = body;
+  if (!UUID_RE.test(String(idempotencyKey || ''))) {
+    throw new AppError('VALIDATION_ERROR', 'idempotencyKey must be a UUID', 400);
+  }
+  const existing = await decisionHistory.findOne({ idempotencyKey }).lean();
+  if (existing) return existing.result;
+
+  const game = await assertOwner(userId, gameId);
+  if (game.status !== 'active') throw new AppError('VALIDATION_ERROR', 'Game is not active', 400);
+  const gs = await gameStates.findOne({ gameId: game._id }).lean();
+  if (!gs) throw new AppError('NOT_FOUND', 'Game state missing', 404);
+  if (gs.version !== Number(expectedStateVersion)) {
+    throw new AppError('STALE_STATE_VERSION', 'State changed — refetch and retry', 409, {
+      currentState: serializeState(gs, game)
+    });
+  }
+
+  const content = await IndustryConfigService.loadContent(game.industry);
+  const [wf, people, proj, market] = await Promise.all([
+    workforce.find({ gameId: game._id }).lean(),
+    employeeCol.find({ gameId: game._id }).lean(),
+    projects.find({ gameId: game._id }).lean(),
+    marketStates.findOne({ gameId: game._id }).sort({ asOfLevel: -1, _id: -1 }).lean()
+  ]);
+
+  const computed = simulationEngine.processAction({
+    type,
+    payload: payload || {},
+    game: game.toObject ? game.toObject() : game,
+    gameState: gs,
+    industryConfig: content.industry.industryConfig,
+    workforce: wf,
+    people,
+    projects: proj,
+    market,
+    seenEventIds: game.seenEventIds || [],
+    rngSeed: null
+  });
+
+  const resultPayload = {
+    newState: {
+      version: computed.newGameState.version,
+      level: computed.newGameState.level,
+      gameMonth: computed.newGameState.gameMonth,
+      phase: computed.phase,
+      phaseLabel: phaseLabel(computed.phase),
+      state: computed.newGameState.state,
+      industryState: computed.newGameState.industryState,
+      flags: computed.newGameState.flags,
+      property: computed.newGameState.property,
+      currentEvent: computed.newGameState.currentEvent,
+      score: computed.newGameState.score,
+      status: computed.gamePatch.status
+    },
+    outcome: computed.outcome,
+    nextEvent: null
+  };
+
+  const history = {
+    gameId: game._id,
+    level: gs.level,
+    eventId: `action:${type}`,
+    eventTitle: `Action: ${type}`,
+    decisionId: type,
+    decisionLabel: type,
+    immediateOutcome: computed.outcome.immediate,
+    financialImpact: { cashDelta: computed.outcome.immediate.cashDelta || 0 },
+    randomResolutions: computed.outcome.randomResolutions,
+    delayed: computed.outcome.delayed,
+    result: resultPayload,
+    idempotencyKey
+  };
+
+  try {
+    const persisted = await SaveGameService.withTransaction(async (session) =>
+      SaveGameService.persistDecision({
+        gameId: game._id,
+        expectedVersion: Number(expectedStateVersion),
+        computed,
+        userId,
+        history,
+        session
+      })
+    );
+    if (persisted.duplicate) return persisted.existing.result;
+  } catch (err) {
+    if (err.code === 'STALE_STATE_VERSION') {
+      const fresh = await gameStates.findOne({ gameId: game._id }).lean();
+      throw new AppError('STALE_STATE_VERSION', err.message, 409, { currentState: serializeState(fresh, game) });
+    }
+    if (err.code === 11000) {
+      const again = await decisionHistory.findOne({ idempotencyKey }).lean();
+      if (again) return again.result;
+    }
+    throw err;
+  }
+
+  return resultPayload;
 }
 
 async function listAchievements(userId, gameId) {
@@ -385,7 +527,7 @@ async function listAchievements(userId, gameId) {
 
 async function market(userId, gameId) {
   await assertOwner(userId, gameId);
-  const row = await marketStates.findOne({ gameId }).sort({ asOfLevel: -1 }).lean();
+  const row = await marketStates.findOne({ gameId }).sort({ asOfLevel: -1, _id: -1 }).lean();
   return { market: row };
 }
 
@@ -427,6 +569,10 @@ module.exports = {
   financials,
   listProjects,
   listEmployees,
+  listPeople,
+  workplace,
+  competitors,
+  submitAction,
   listAchievements,
   market,
   restart,

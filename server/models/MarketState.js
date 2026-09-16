@@ -10,7 +10,9 @@ const marketStateSchema = new mongoose.Schema({
   competitionIntensity: Number,
   economicCondition: { type: String, default: 'normal' },
   technologyTrend: String,
-  conditionRemaining: { type: Number, default: 0 }
+  conditionRemaining: { type: Number, default: 0 },
+  competitors: { type: Array, default: [] },
+  intel: { type: Object, default: {} }
 });
 
 marketStateSchema.index({ gameId: 1, asOfLevel: 1 });

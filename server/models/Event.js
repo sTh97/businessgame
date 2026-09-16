@@ -14,7 +14,10 @@ const eventSchema = new mongoose.Schema({
   minLevel: { type: Number, default: 1 },
   maxLevel: { type: Number, default: 100 },
   eventPoolIds: { type: [String], default: [] },
-  isCritical: { type: Boolean, default: false }
+  isCritical: { type: Boolean, default: false },
+  repeatable: { type: Boolean, default: false },
+  requiresFlags: { type: Object, default: {} },
+  forbidsFlags: { type: Object, default: {} }
 });
 
 eventSchema.index({ industry: 1, category: 1 });

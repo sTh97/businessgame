@@ -7,17 +7,27 @@ const {
   workforce,
   financialHistory,
   marketStates,
-  userAchievements
+  userAchievements,
+  employees: employeeCol
 } = require('../repositories');
 const { AppError } = require('../utils/http');
 
-async function persistNewGame({ game, state, workforceRows, market, session }) {
+async function persistNewGame({ game, state, workforceRows, peopleRows, market, session }) {
   const [created] = await games.create([game], { session });
   const gameId = created._id;
   await gameStates.create([{ ...state, gameId }], { session });
   if (workforceRows.length) {
     await workforce.insertMany(
       workforceRows.map((w) => ({ ...w, gameId })),
+      { session }
+    );
+  }
+  if (peopleRows?.length) {
+    await employeeCol.insertMany(
+      peopleRows.map((p) => {
+        const { _id, __v, ...rest } = p;
+        return { ...rest, gameId };
+      }),
       { session }
     );
   }
@@ -36,6 +46,8 @@ async function persistDecision({ gameId, expectedVersion, computed, userId, hist
         gameMonth: computed.newGameState.gameMonth,
         state: computed.newGameState.state,
         industryState: computed.newGameState.industryState,
+        flags: computed.newGameState.flags || {},
+        property: computed.newGameState.property || {},
         pendingConsequences: computed.newGameState.pendingConsequences,
         currentEvent: computed.newGameState.currentEvent,
         score: computed.newGameState.score,
@@ -92,6 +104,17 @@ async function persistDecision({ gameId, expectedVersion, computed, userId, hist
     );
   }
 
+  await employeeCol.deleteMany({ gameId }, { session });
+  if (computed.people?.length) {
+    await employeeCol.insertMany(
+      computed.people.map((p) => {
+        const { _id, __v, ...rest } = p;
+        return { ...rest, gameId };
+      }),
+      { session }
+    );
+  }
+
   const newProjects = computed.projects.filter((p) => p._new || !p._id);
   const existingProjects = computed.projects.filter((p) => p._id && !p._new);
   for (const p of existingProjects) {
@@ -101,7 +124,8 @@ async function persistDecision({ gameId, expectedVersion, computed, userId, hist
         $set: {
           status: p.status,
           remaining: p.remaining,
-          projectName: p.projectName
+          projectName: p.projectName,
+          risk: p.risk
         }
       },
       { session }

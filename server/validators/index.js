@@ -35,6 +35,28 @@ const decisionSchema = z.object({
   idempotencyKey: z.string().uuid()
 });
 
+const actionSchema = z.object({
+  type: z.enum([
+    'hire',
+    'fire',
+    'promote',
+    'make-manager',
+    'assign-project',
+    'assign-room',
+    'train',
+    'founder-focus',
+    'rent-office',
+    'buy-office',
+    'renovate',
+    'set-policy',
+    'commission-intel',
+    'pursue-suggestion'
+  ]),
+  payload: z.record(z.any()).optional(),
+  expectedStateVersion: z.number().int().nonnegative(),
+  idempotencyKey: z.string().uuid()
+});
+
 function parse(schema, payload) {
   return schema.parse(payload);
 }
@@ -47,5 +69,6 @@ module.exports = {
   createGameSchema,
   previewSchema,
   decisionSchema,
+  actionSchema,
   parse
 };

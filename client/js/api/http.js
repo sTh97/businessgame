@@ -84,6 +84,10 @@ BES.api = {
   employees: (id) => http.request(`/api/games/${id}/employees`),
   achievements: (id) => http.request(`/api/games/${id}/achievements`),
   market: (id) => http.request(`/api/games/${id}/market`),
+  people: (id) => http.request(`/api/games/${id}/people`),
+  workplace: (id) => http.request(`/api/games/${id}/workplace`),
+  competitors: (id) => http.request(`/api/games/${id}/competitors`),
+  action: (id, body) => http.request(`/api/games/${id}/actions`, { method: 'POST', body }),
   restart: (id) => http.request(`/api/games/${id}/restart`, { method: 'POST' }),
   report: (id) => http.request(`/api/games/${id}/report`)
 };

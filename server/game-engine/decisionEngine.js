@@ -1,5 +1,9 @@
 const { addDelta } = require('../utils/state');
 const { evalCondition, evalSuccessProbability } = require('../utils/formula');
+const { clamp } = require('../utils/sanitize');
+const { applySetFlags, applySetProperty } = require('./flags');
+
+const TONE_PROF = { cautious: 1, bold: 1, risky: -2, neutral: 0 };
 
 function applyDirectEffects(state, industryState, deltas) {
   if (!deltas) return {};
@@ -31,14 +35,33 @@ function applyConditionalEffects(state, industryState, conditionals) {
   return applied;
 }
 
+function applyProfessionalism(state, decision) {
+  const explicit = decision.professionalismDelta;
+  const delta = explicit == null ? TONE_PROF[decision.tone] || 0 : Number(explicit);
+  if (!delta) return 0;
+  state.founderProfessionalism = clamp((Number(state.founderProfessionalism) || 50) + delta, 0, 100);
+  return delta;
+}
+
+function applyDecisionMeta(state, flags, property, decision) {
+  const nextFlags = applySetFlags(flags, decision.setFlags);
+  const patched = applySetProperty(property, decision.setProperty, nextFlags);
+  applyProfessionalism(state, decision);
+  return { flags: patched.flags, property: patched.property };
+}
+
 function applyProbabilityEffects(state, industryState, probabilityEffects, rng, difficultyBonus) {
   const ctx = { state, industryState };
   const resolutions = [];
   const applied = {};
   for (const pe of probabilityEffects || []) {
+    const modifiers = [
+      ...(pe.modifiers || []),
+      { source: 'founderProfessionalism', formula: '(founderProfessionalism - 50) * 0.001' }
+    ];
     const finalProbability = evalSuccessProbability(
       pe.baseProbability,
-      pe.modifiers,
+      modifiers,
       ctx,
       difficultyBonus
     );
@@ -103,5 +126,7 @@ module.exports = {
   applyConditionalEffects,
   applyProbabilityEffects,
   applyHiddenEffects,
-  buildPendingConsequences
+  buildPendingConsequences,
+  applyProfessionalism,
+  applyDecisionMeta
 };

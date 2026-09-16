@@ -95,7 +95,171 @@ describe('simulation pipeline', () => {
     assert.equal(result.newGameState.version, 2);
     assert.equal(result.newGameState.level, 2);
     assert.ok(result.newGameState.state.cash < state.cash);
-    assert.ok(result.nextEvent);
-    assert.equal(result.gamePatch.status, 'active');
+    assert.equal(result.newGameState.flags.housing, 'rent');
+    assert.equal(result.newGameState.flags.workMode, 'office');
+    assert.ok(result.nextEvent._id !== 'swh-remote-client-address');
+  });
+
+  test('remote founding forbids office-rent events and allows remote follow-ups', () => {
+    const { eventDocs, decisionDocs } = flatten();
+    const decision = decisionDocs.find((d) => d._id === 'swh-01-founding-bet-A');
+    const state = simulationEngine.applyStartingModifiers(
+      softwareHouseConfig.startingState,
+      DIFFICULTY_MODIFIERS.normal
+    );
+    const result = simulationEngine.processDecision({
+      game: {
+        industry: 'software-house',
+        status: 'active',
+        difficultyModifiers: DIFFICULTY_MODIFIERS.normal,
+        seenEventIds: ['swh-01-founding-bet']
+      },
+      gameState: {
+        gameId: 'test',
+        version: 1,
+        level: 1,
+        gameMonth: 1,
+        state,
+        industryState: { ...softwareHouseConfig.startingIndustryState },
+        pendingConsequences: [],
+        currentEvent: { eventId: 'swh-01-founding-bet', status: 'pending' }
+      },
+      decision,
+      industryConfig: softwareHouseConfig,
+      events: eventDocs,
+      workforce: softwareHouseConfig.startingWorkforce,
+      people: softwareHouseConfig.startingPeople,
+      projects: [],
+      market: softwareHouseConfig.initialMarket,
+      achievements: [],
+      unlockedAchievementIds: [],
+      seenEventIds: ['swh-01-founding-bet'],
+      rngSeed: 7
+    });
+    assert.equal(result.newGameState.flags.workMode, 'remote');
+    assert.equal(result.newGameState.flags.housing, 'none');
+    const office = eventDocs.find((e) => e._id === 'swh-19-office-expansion');
+    const { flagsMatch, flagsForbidden } = require('../game-engine/flags');
+    assert.equal(flagsForbidden(office.forbidsFlags, result.newGameState.flags), true);
+    const remoteEvt = eventDocs.find((e) => e._id === 'swh-remote-client-address');
+    assert.equal(flagsMatch(remoteEvt.requiresFlags, result.newGameState.flags), true);
+  });
+});
+
+describe('ops actions', () => {
+  function actionInput(type, payload, extra = {}) {
+    const state = simulationEngine.applyStartingModifiers(
+      softwareHouseConfig.startingState,
+      DIFFICULTY_MODIFIERS.normal
+    );
+    return {
+      type,
+      payload: payload || {},
+      game: {
+        industry: 'software-house',
+        status: 'active',
+        difficultyModifiers: DIFFICULTY_MODIFIERS.normal
+      },
+      gameState: {
+        gameId: 'test',
+        version: extra.version || 1,
+        level: extra.level || 2,
+        gameMonth: extra.gameMonth || 2,
+        state: extra.state || state,
+        industryState: { ...softwareHouseConfig.startingIndustryState },
+        flags: extra.flags || {
+          workMode: 'remote',
+          housing: 'none',
+          carPolicy: 'none',
+          fuelPolicy: 'none',
+          founderFocus: null
+        },
+        property: extra.property || {
+          kind: 'none',
+          monthlyCost: 0,
+          assetValue: 0,
+          renovationLevel: 0,
+          rooms: []
+        },
+        pendingConsequences: [],
+        currentEvent: { eventId: 'swh-02-first-hire', status: 'pending' }
+      },
+      industryConfig: softwareHouseConfig,
+      people: extra.people || softwareHouseConfig.startingPeople.map((p) => ({ ...p, taskBurndown: { ...p.taskBurndown } })),
+      projects: extra.projects || [],
+      market: extra.market || { ...softwareHouseConfig.initialMarket },
+      seenEventIds: ['swh-01-founding-bet'],
+      rngSeed: extra.rngSeed ?? 11
+    };
+  }
+
+  test('hire does not skip the situation and adds a named person', () => {
+    const result = simulationEngine.processAction(actionInput('hire', { role: 'qa' }));
+    assert.equal(result.newGameState.level, 2);
+    assert.equal(result.newGameState.currentEvent.eventId, 'swh-02-first-hire');
+    assert.equal(result.people.length, 4);
+    assert.equal(result.newGameState.gameMonth, 3);
+    assert.ok(result.outcome.founderProfessionalism != null);
+  });
+
+  test('rent-office flips housing flags and keeps the pending card', () => {
+    const result = simulationEngine.processAction(actionInput('rent-office', {}));
+    assert.equal(result.newGameState.flags.housing, 'rent');
+    assert.equal(result.newGameState.flags.workMode, 'office');
+    assert.equal(result.newGameState.property.kind, 'rented');
+    assert.ok(result.newGameState.property.rooms.length >= 3);
+    assert.equal(result.newGameState.level, 2);
+    assert.equal(result.newGameState.currentEvent.eventId, 'swh-02-first-hire');
+  });
+
+  test('assign-room is a light action and does not tick the month', () => {
+    const rented = simulationEngine.processAction(actionInput('rent-office', {}, { rngSeed: 4 }));
+    const personId = rented.people[0].personId;
+    const roomId = rented.newGameState.property.rooms[0].id;
+    const assigned = simulationEngine.processAction({
+      ...actionInput('assign-room', { personId, roomId }, { rngSeed: 5 }),
+      gameState: rented.newGameState,
+      people: rented.people,
+      projects: rented.projects,
+      market: rented.market
+    });
+    assert.equal(assigned.newGameState.gameMonth, rented.newGameState.gameMonth);
+    assert.equal(assigned.newGameState.level, rented.newGameState.level);
+    assert.equal(
+      assigned.people.find((p) => p.personId === personId).assignedRoomId,
+      roomId
+    );
+  });
+
+  test('commission intel spends cash and returns a lesson', () => {
+    const result = simulationEngine.processAction(actionInput('commission-intel', {}, { rngSeed: 2 }));
+    assert.ok(result.newGameState.state.cash < softwareHouseConfig.startingState.cash);
+    assert.ok(result.outcome.lesson);
+    assert.equal(result.newGameState.level, 2);
+  });
+});
+
+describe('event engine flags', () => {
+  test('never selects office expansion while remote with no housing', () => {
+    const eventEngine = require('../game-engine/eventEngine');
+    const { eventDocs } = flatten();
+    const office = eventDocs.find((e) => e._id === 'swh-19-office-expansion');
+    const { flagsForbidden } = require('../game-engine/flags');
+    const flags = { workMode: 'remote', housing: 'none', carPolicy: 'none', fuelPolicy: 'none' };
+    assert.equal(flagsForbidden(office.forbidsFlags, flags), true);
+    for (let i = 0; i < 30; i += 1) {
+      const next = eventEngine.selectNextEvent({
+        events: eventDocs,
+        industry: 'software-house',
+        level: 16,
+        state: { cash: 80000, employees: 8, reputation: 40 },
+        industryState: {},
+        seenEventIds: ['swh-01-founding-bet'],
+        rng: () => (i + 1) / 40,
+        flags
+      });
+      assert.ok(next);
+      assert.notEqual(next._id, 'swh-19-office-expansion');
+    }
   });
 });

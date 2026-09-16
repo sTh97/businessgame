@@ -1,6 +1,7 @@
 const { phaseForLevel } = require('../utils/state');
 const { matchesEligibility } = require('../utils/formula');
 const { addDelta } = require('../utils/state');
+const { flagsMatch, flagsForbidden } = require('./flags');
 
 function pickWeighted(items, rng) {
   const total = items.reduce((s, i) => s + (i.weight || 1), 0);
@@ -12,7 +13,17 @@ function pickWeighted(items, rng) {
   return items[items.length - 1];
 }
 
-function selectNextEvent({ events, industry, level, state, industryState, seenEventIds, rng, preferredPool }) {
+function selectNextEvent({
+  events,
+  industry,
+  level,
+  state,
+  industryState,
+  seenEventIds,
+  rng,
+  preferredPool,
+  flags
+}) {
   const phase = phaseForLevel(level);
   const seen = new Set(seenEventIds || []);
   const ctx = { state, industryState, level };
@@ -25,21 +36,27 @@ function selectNextEvent({ events, industry, level, state, industryState, seenEv
     if (Array.isArray(e.phaseEligible) && e.phaseEligible.length && !e.phaseEligible.includes(phase)) {
       return false;
     }
-    if (e.once && seen.has(e._id)) return false;
+    if (seen.has(e._id) && !e.repeatable) return false;
     if (preferredPool && Array.isArray(e.eventPoolIds) && e.eventPoolIds.length) {
       if (!e.eventPoolIds.includes(preferredPool)) return false;
     }
+    if (!flagsMatch(e.requiresFlags, flags)) return false;
+    if (flagsForbidden(e.forbidsFlags, flags)) return false;
     return matchesEligibility(e.eligibility, ctx);
   });
 
   if (!pool.length) {
-    pool = (events || []).filter(
-      (e) => e.industry === industry && !e.isCritical && (!e.once || !seen.has(e._id))
-    );
+    pool = (events || []).filter((e) => {
+      if (e.industry !== industry || e.isCritical) return false;
+      if (seen.has(e._id) && !e.repeatable) return false;
+      if (!flagsMatch(e.requiresFlags, flags)) return false;
+      if (flagsForbidden(e.forbidsFlags, flags)) return false;
+      return true;
+    });
   }
 
-  const unseen = pool.filter((e) => !seen.has(e._id));
-  const use = unseen.length ? unseen : pool;
+  const brandNew = pool.filter((e) => !seen.has(e._id));
+  const use = brandNew.length ? brandNew : pool.filter((e) => e.repeatable);
   if (!use.length) return null;
   return pickWeighted(use, rng);
 }

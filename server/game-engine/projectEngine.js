@@ -58,12 +58,24 @@ function applyProjectEffects(projects, effects, ctx) {
   return { projects: list, stateDeltas };
 }
 
-function tickProjects(projects, state, rng) {
+function tickProjects(projects, state, rng, people) {
   const events = [];
   let activeLoad = 0;
+  const roster = (people || []).filter((p) => p.status !== 'departed');
   for (const project of projects) {
     if (project.status !== 'in-progress' && project.status !== 'delayed') continue;
     activeLoad += project.requiredCapacity || 0;
+    const team = roster.filter(
+      (p) => p.assignedProjectId && (String(p.assignedProjectId) === String(project._id) || p.assignedProjectId === project.projectName)
+    );
+    if (!team.length) {
+      project.risk = clamp((project.risk || 0.15) + 0.05, 0.05, 0.95);
+    }
+    for (const p of team) {
+      const burn = Math.max(1, Math.round((p.skill || 50) / 30));
+      p.taskBurndown = p.taskBurndown || { assigned: 10, remaining: 10 };
+      p.taskBurndown.remaining = Math.max(0, (p.taskBurndown.remaining || 0) - burn);
+    }
     project.remaining = Math.max(0, (project.remaining ?? project.duration) - 1);
 
     const overloaded = (state.operationalCapacity || 0) < (project.requiredCapacity || 0);

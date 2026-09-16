@@ -14,7 +14,10 @@ const decisionSchema = new mongoose.Schema({
   hiddenEffects: { type: Object, default: {} },
   delayedEffects: { type: Array, default: [] },
   workforceEffects: { type: Object, default: {} },
-  projectEffects: { type: Object, default: {} }
+  projectEffects: { type: Object, default: {} },
+  setFlags: { type: Object, default: {} },
+  setProperty: { type: Object, default: {} },
+  professionalismDelta: { type: Number }
 });
 
 module.exports = mongoose.model('Decision', decisionSchema);

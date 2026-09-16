@@ -26,6 +26,8 @@ const gameStateSchema = new mongoose.Schema({
     eventId: String,
     status: { type: String, enum: ['pending', 'resolved', 'none'], default: 'pending' }
   },
+  flags: { type: Object, default: () => ({}) },
+  property: { type: Object, default: () => ({}) },
   score: { type: Number, default: 0 },
   lastOutcome: { type: Object },
   updatedAt: { type: Date, default: Date.now }

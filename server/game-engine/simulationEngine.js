@@ -1,4 +1,5 @@
 const { clone, addDelta, phaseForLevel } = require('../utils/state');
+const { clamp } = require('../utils/sanitize');
 const decisionEngine = require('./decisionEngine');
 const financialEngine = require('./financialEngine');
 const workforceEngine = require('./workforceEngine');
@@ -8,14 +9,44 @@ const marketEngine = require('./marketEngine');
 const scoringEngine = require('./scoringEngine');
 const achievementEngine = require('./achievementEngine');
 const failureEngine = require('./failureEngine');
+const actionEngine = require('./actionEngine');
 const { createRng } = require('../utils/rng');
+const { defaultFlags, defaultProperty, defaultIntel } = require('./flags');
 
 function applyStartingModifiers(startingState, modifiers) {
   const state = clone(startingState);
   state.cash = Math.round(state.cash * (modifiers.cashMultiplier ?? 1));
   state.monthlyExpenses = Math.round(state.monthlyExpenses * (modifiers.expenseMultiplier ?? 1));
   state.reputation = (state.reputation || 0) + (modifiers.startingReputationBonus || 0);
+  state.founderProfessionalism = clamp(
+    (state.founderProfessionalism || 55) + (modifiers.startingReputationBonus || 0),
+    0,
+    100
+  );
   return state;
+}
+
+function applyFounderFocus(state, industryState, flags) {
+  const focus = flags?.founderFocus;
+  if (focus === 'sales') {
+    state.revenue = (Number(state.revenue) || 0) * 1.02;
+    industryState.pipeline = (Number(industryState.pipeline) || 0) + 4;
+  } else if (focus === 'delivery') {
+    state.quality = clamp((state.quality || 70) + 1, 0, 100);
+    industryState.deliveryRisk = Math.max(0, (Number(industryState.deliveryRisk) || 0) - 2);
+  } else if (focus === 'culture') {
+    state.employeeMorale = clamp((state.employeeMorale || 50) + 2, 0, 100);
+  }
+}
+
+function finishFinancials(state, industryConfig, market) {
+  state.exceptionalLosses = 0;
+  const financials = financialEngine.recompute(state, industryConfig, market);
+  financialEngine.applyCashFlow(state, {});
+  financialEngine.recompute(state, industryConfig, market);
+  failureEngine.clampState(state);
+  state.founderProfessionalism = clamp(Number(state.founderProfessionalism) || 50, 0, 100);
+  return financials;
 }
 
 function processDecision(input) {
@@ -28,22 +59,24 @@ function processDecision(input) {
 
   const state = clone(prev.state);
   const industryState = clone(prev.industryState || {});
+  let flags = clone(prev.flags || defaultFlags());
+  let property = clone(prev.property || defaultProperty());
   let workforce = clone(input.workforce || []);
+  let people = clone(input.people || industryConfig.startingPeople || []);
   let projects = clone(input.projects || []);
   let market = clone(input.market || marketEngine.initialMarket(industryConfig));
+  if (!market.intel) market.intel = defaultIntel();
 
   const before = snapshotMetrics(state);
 
+  const meta = decisionEngine.applyDecisionMeta(state, flags, property, decision);
+  flags = meta.flags;
+  property = meta.property;
+
   const immediate = {};
   Object.assign(immediate, decisionEngine.applyDirectEffects(state, industryState, decision.directEffects));
-  Object.assign(
-    immediate,
-    decisionEngine.applyIndustryEffects(industryState, decision.industryDirectEffects)
-  );
-  Object.assign(
-    immediate,
-    decisionEngine.applyConditionalEffects(state, industryState, decision.conditionalEffects)
-  );
+  Object.assign(immediate, decisionEngine.applyIndustryEffects(industryState, decision.industryDirectEffects));
+  Object.assign(immediate, decisionEngine.applyConditionalEffects(state, industryState, decision.conditionalEffects));
 
   const { resolutions, applied: probApplied } = decisionEngine.applyProbabilityEffects(
     state,
@@ -56,12 +89,17 @@ function processDecision(input) {
 
   const hiddenApplied = decisionEngine.applyHiddenEffects(industryState, decision.hiddenEffects);
 
-  workforce = workforceEngine.applyWorkforceEffects(
+  const wfApplied = workforceEngine.applyWorkforceEffects(
     workforce,
     decision.workforceEffects,
-    industryConfig.roles
+    industryConfig.roles,
+    people,
+    rng
   );
-  workforceEngine.recomputeWorkforce(state, workforce, industryConfig.roles);
+  workforce = wfApplied.workforce;
+  people = wfApplied.people;
+  workforceEngine.recomputeWorkforce(state, workforce, industryConfig.roles, property, flags, people);
+  workforce = workforceEngine.syncAggregatesFromPeople(people, industryConfig.roles);
 
   const projectResult = projectEngine.applyProjectEffects(projects, decision.projectEffects, {
     gameMonth: prev.gameMonth,
@@ -70,11 +108,13 @@ function processDecision(input) {
   projects = projectResult.projects;
   Object.assign(immediate, addDelta(state, projectResult.stateDeltas).applied);
 
+  applyFounderFocus(state, industryState, flags);
+
   const duration = decision.durationMonths || 1;
   const newMonth = prev.gameMonth + duration;
   const newLevel = prev.level + 1;
 
-  const projectTicks = projectEngine.tickProjects(projects, state, rng);
+  const projectTicks = projectEngine.tickProjects(projects, state, rng, people);
   market = marketEngine.tickMarket(market, state, newLevel, rng);
   marketEngine.applyMarketToState(state, market);
 
@@ -97,12 +137,8 @@ function processDecision(input) {
     if (report.hit && report.eventPool) preferredPool = report.eventPool;
   }
 
-  state.exceptionalLosses = 0;
-  const financials = financialEngine.recompute(state, industryConfig, market);
-  financialEngine.applyCashFlow(state, {});
-  financialEngine.recompute(state, industryConfig, market);
-
-  failureEngine.clampState(state);
+  const financials = finishFinancials(state, industryConfig, market);
+  workforceEngine.recomputeWorkforce(state, workforce, industryConfig.roles, property, flags, people);
   state.level = newLevel;
 
   const failureCheck = failureEngine.evaluateFailureConditions(
@@ -132,7 +168,8 @@ function processDecision(input) {
       industryState,
       seenEventIds: input.seenEventIds,
       rng,
-      preferredPool
+      preferredPool,
+      flags
     });
   }
 
@@ -164,7 +201,9 @@ function processDecision(input) {
     randomResolutions: resolutions,
     projectTicks,
     failureCheck,
-    score
+    score,
+    lesson: null,
+    founderProfessionalism: state.founderProfessionalism
   };
 
   const newGameState = {
@@ -174,6 +213,8 @@ function processDecision(input) {
     gameMonth: newMonth,
     state,
     industryState,
+    flags,
+    property,
     pendingConsequences: split.remaining,
     currentEvent: nextEvent
       ? { eventId: nextEvent._id, status: 'pending' }
@@ -193,6 +234,7 @@ function processDecision(input) {
       seenEventIds: nextEvent ? [...new Set([...(input.seenEventIds || []), nextEvent._id])] : input.seenEventIds
     },
     workforce,
+    people,
     projects,
     market: { ...market, asOfLevel: newLevel },
     financials: {
@@ -205,6 +247,120 @@ function processDecision(input) {
     nextEvent,
     newAchievements,
     phase: phaseForLevel(newLevel)
+  };
+}
+
+function processAction(input) {
+  const rng = createRng(input.rngSeed);
+  const prev = input.gameState;
+  const industryConfig = input.industryConfig;
+  const state = clone(prev.state);
+  const industryState = clone(prev.industryState || {});
+  let flags = clone(prev.flags || defaultFlags());
+  let property = clone(prev.property || defaultProperty());
+  let people = clone(input.people || []);
+  let projects = clone(input.projects || []);
+  let market = clone(input.market || marketEngine.initialMarket(industryConfig));
+  const before = snapshotMetrics(state);
+
+  const applied = actionEngine.applyAction({
+    type: input.type,
+    payload: input.payload,
+    state,
+    flags,
+    property,
+    people,
+    projects,
+    market,
+    roles: industryConfig.roles,
+    rng
+  });
+
+  flags = applied.flags;
+  property = applied.property;
+  people = applied.people;
+  projects = applied.projects;
+  market = applied.market;
+
+  workforceEngine.recomputeWorkforce(state, [], industryConfig.roles, property, flags, people);
+  const workforce = workforceEngine.syncAggregatesFromPeople(people, industryConfig.roles);
+
+  let newMonth = prev.gameMonth;
+  let financials = financialEngine.recompute(state, industryConfig, market);
+  const pending = [...(prev.pendingConsequences || [])];
+
+  if (applied.heavy) {
+    newMonth += 1;
+    projectEngine.tickProjects(projects, state, rng, people);
+    applyFounderFocus(state, industryState, flags);
+    financials = finishFinancials(state, industryConfig, market);
+    workforceEngine.recomputeWorkforce(state, workforce, industryConfig.roles, property, flags, people);
+    for (const de of applied.delayed || []) {
+      pending.push(
+        ...decisionEngine.buildPendingConsequences([de], `action:${input.type}`, prev.level, prev.gameMonth)
+      );
+    }
+  }
+
+  const after = snapshotMetrics(state);
+  const outcome = {
+    immediate: diffMetrics(before, after),
+    delayed: (applied.delayed || []).map((d) => ({ label: d.label, triggerLevel: d.triggerLevel, banner: 'MONTHS LATER…' })),
+    randomResolutions: applied.outcomeExtra?.probability
+      ? [
+          {
+            key: input.type,
+            finalProbability: applied.outcomeExtra.probability,
+            roll: applied.outcomeExtra.roll,
+            result: applied.outcomeExtra.success
+          }
+        ]
+      : [],
+    lesson: applied.lesson,
+    message: applied.message,
+    founderProfessionalism: state.founderProfessionalism,
+    score: scoringEngine.compute(state, input.game, industryConfig)
+  };
+
+  const newGameState = {
+    gameId: prev.gameId,
+    version: prev.version + 1,
+    level: prev.level,
+    gameMonth: newMonth,
+    state,
+    industryState,
+    flags,
+    property,
+    pendingConsequences: pending,
+    currentEvent: prev.currentEvent,
+    score: outcome.score.businessScore,
+    lastOutcome: outcome
+  };
+
+  return {
+    newGameState,
+    gamePatch: {
+      status: input.game.status,
+      currentLevel: prev.level,
+      gameStateVersion: prev.version + 1,
+      score: outcome.score.businessScore,
+      criticalUsed: Boolean(input.game.criticalUsed),
+      seenEventIds: input.seenEventIds
+    },
+    workforce,
+    people,
+    projects,
+    market: { ...market, asOfLevel: prev.level },
+    financials: {
+      ...financials,
+      period: `gameMonth:${newMonth}`,
+      gameMonth: newMonth,
+      level: prev.level
+    },
+    outcome,
+    nextEvent: null,
+    newAchievements: [],
+    phase: phaseForLevel(prev.level)
   };
 }
 
@@ -223,7 +379,8 @@ function snapshotMetrics(state) {
     operationalCapacity: state.operationalCapacity,
     quality: state.quality,
     marketShare: state.marketShare,
-    brandStrength: state.brandStrength
+    brandStrength: state.brandStrength,
+    founderProfessionalism: state.founderProfessionalism
   };
 }
 
@@ -236,4 +393,4 @@ function diffMetrics(before, after) {
   return out;
 }
 
-module.exports = { processDecision, applyStartingModifiers, snapshotMetrics };
+module.exports = { processDecision, processAction, applyStartingModifiers, snapshotMetrics };

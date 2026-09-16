@@ -237,13 +237,18 @@ async function renderCreate() {
   await paint();
 }
 
+function profBar(value, label = 'Founder professionalism') {
+  const v = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  return `<div class="prof"><div class="prof-label">${BES.escape(label)} · ${v}</div><div class="prof-track" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${v}" aria-label="${BES.escape(label)}"><span style="width:${v}%"></span></div></div>`;
+}
+
 function metricCards(s) {
   const items = [
     ['Cash', BES.money(s.cash)],
     ['Revenue', BES.money(s.revenue)],
     ['Profit/Loss', BES.money(s.netProfit)],
     ['Company value', BES.money(s.companyValue)],
-    ['Employees', s.employees],
+    ['Professionalism', Math.round(s.founderProfessionalism || 0)],
     ['Customers', s.customers],
     ['Reputation', Math.round(s.reputation)],
     ['Capacity', Math.round(s.operationalCapacity)]
@@ -253,13 +258,19 @@ function metricCards(s) {
     .join('')}</div>`;
 }
 
-function showOutcome(outcome, onDone) {
+function showOutcome(outcome, onDone, afterProf) {
   const immediate = outcome.immediate || {};
   const lines = Object.entries(immediate)
     .filter(([, v]) => Math.abs(Number(v)) >= 0.05)
     .map(([k, v]) => {
       const n = Number(v);
-      return `<div class="delta-line"><span>${BES.prettyKey(k)}</span><span class="${BES.clsDelta(n)}">${n > 0 ? '+' : ''}${k.toLowerCase().includes('cash') || k.toLowerCase().includes('revenue') || k.toLowerCase().includes('value') || k.toLowerCase().includes('debt') ? BES.money(n) : n}</span></div>`;
+      const moneyish =
+        k.toLowerCase().includes('cash') ||
+        k.toLowerCase().includes('revenue') ||
+        k.toLowerCase().includes('value') ||
+        k.toLowerCase().includes('debt') ||
+        k.toLowerCase().includes('salary');
+      return `<div class="delta-line"><span>${BES.prettyKey(k)}</span><span class="${BES.clsDelta(n)}">${n > 0 ? '+' : ''}${moneyish ? BES.money(n) : n}</span></div>`;
     })
     .join('');
   const delayed = (outcome.delayed || [])
@@ -271,14 +282,30 @@ function showOutcome(outcome, onDone) {
         `<p class="hint">${BES.escape(r.key)}: ${(r.finalProbability * 100).toFixed(0)}% chance · roll ${(r.roll * 100).toFixed(0)}% · ${r.result ? 'success' : 'failure'}</p>`
     )
     .join('');
+  const lesson = outcome.lesson || outcome.message
+    ? `<div class="lesson">${BES.escape(outcome.lesson || outcome.message)}</div>`
+    : '';
+  const prof = afterProf != null ? afterProf : outcome.founderProfessionalism;
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
-  overlay.innerHTML = `<div class="card overlay-card" role="dialog" aria-live="assertive"><h2 class="brand-name">Consequences</h2>${lines || '<p class="muted">No immediate metric change.</p>'}${rolls}${delayed}<button class="btn btn-primary btn-block" style="margin-top:16px" id="close-out">Continue</button></div>`;
+  overlay.innerHTML = `<div class="card overlay-card" role="dialog" aria-live="assertive"><h2 class="brand-name">Consequences</h2>${prof != null ? profBar(prof) : ''}${lines || '<p class="muted">No immediate metric change.</p>'}${rolls}${delayed}${lesson}<button class="btn btn-primary btn-block" style="margin-top:16px" id="close-out">Continue</button></div>`;
   document.body.appendChild(overlay);
   overlay.querySelector('#close-out').addEventListener('click', () => {
     overlay.remove();
     onDone();
   });
+}
+
+async function runAction(gameId, version, type, payload, tab) {
+  const result = await BES.api.action(gameId, {
+    type,
+    payload: payload || {},
+    expectedStateVersion: version,
+    idempotencyKey: BES.uuid()
+  });
+  const after = result.newState?.state?.founderProfessionalism ?? result.outcome?.founderProfessionalism;
+  showOutcome(result.outcome, () => renderGame(gameId, tab), after);
+  return result;
 }
 
 async function renderGame(gameId, tab = 'situation') {
@@ -306,6 +333,7 @@ async function renderGame(gameId, tab = 'situation') {
     } else {
       panel = `<div class="card situation ${ev.event.isCritical ? 'crit' : ''}">
         <div class="cat-pill">${BES.escape(ev.event.category)}${ev.event.isCritical ? ' · critical' : ''}</div>
+        ${profBar(st.state.founderProfessionalism)}
         <h2>${BES.escape(ev.event.title)}</h2>
         <p>${BES.escape(ev.event.narrative)}</p>
         <div class="choices">
@@ -316,6 +344,12 @@ async function renderGame(gameId, tab = 'situation') {
               </button>`
             )
             .join('')}
+        </div>
+        <p class="hint" style="margin-top:16px">Founder time this month</p>
+        <div class="row">
+          <button class="btn" data-focus="sales">Focus: sales</button>
+          <button class="btn" data-focus="delivery">Focus: delivery</button>
+          <button class="btn" data-focus="culture">Focus: culture</button>
         </div>
       </div>`;
     }
@@ -360,17 +394,122 @@ async function renderGame(gameId, tab = 'situation') {
         .join('') || '<p class="muted">No projects in flight.</p>'
     }</div></div>`;
   } else if (tab === 'people') {
-    const { workforce } = await BES.api.employees(gameId);
-    panel = `<div class="card"><h3>Workforce</h3><table class="mini-table"><thead><tr><th>Role</th><th>Count</th><th>Skill</th><th>Morale</th></tr></thead><tbody>
-      ${workforce.map((w) => `<tr><td>${BES.escape(w.title || w.role)}</td><td>${w.count}</td><td>${Math.round(w.avgSkill)}</td><td>${Math.round(w.avgMorale)}</td></tr>`).join('')}
-    </tbody></table></div>`;
+    const { people, roles } = await BES.api.people(gameId);
+    const { projects } = await BES.api.projects(gameId);
+    const open = projects.filter((p) => p.status === 'in-progress' || p.status === 'delayed');
+    panel = `<div class="side-stack">
+      <div class="card">
+        <h3>Hire</h3>
+        <p class="muted">Named people, not headcount. Hiring spends cash and can still go wrong.</p>
+        <div class="row">${(roles || [])
+          .map(
+            (r) =>
+              `<button class="btn" data-hire="${r.id}">Hire ${BES.escape(r.title)} · ${BES.money(r.salary)}</button>`
+          )
+          .join('')}</div>
+      </div>
+      <div class="person-grid">
+        ${(people || [])
+          .map((p) => {
+            const burn = p.taskBurndown || {};
+            return `<div class="card person-card" data-person="${BES.escape(p.personId)}">
+              <strong>${BES.escape(p.name)}</strong>
+              ${p.isManager ? '<span class="badge active">manager</span>' : ''}
+              <div class="muted">${BES.escape(p.title || p.role)} · ${BES.money(p.salary)} / mo</div>
+              ${profBar(p.professionalism, 'Professionalism')}
+              <p class="hint">Morale ${Math.round(p.morale)} · Skill ${Math.round(p.skill)} · Tasks ${burn.remaining || 0}/${burn.assigned || 0}</p>
+              <div class="person-actions">
+                <button class="btn" data-act="promote">Promote</button>
+                <button class="btn" data-act="make-manager">Make manager</button>
+                <button class="btn" data-act="train">1:1 / train</button>
+                <button class="btn btn-danger" data-act="fire">Fire</button>
+              </div>
+              ${
+                open.length
+                  ? `<label class="hint">Assign project</label><select data-assign-project>
+                      <option value="">—</option>
+                      ${open.map((pr) => `<option value="${BES.escape(String(pr._id || pr.projectName))}">${BES.escape(pr.projectName)}</option>`).join('')}
+                    </select>`
+                  : ''
+              }
+            </div>`;
+          })
+          .join('') || '<div class="card muted">No one on the books.</div>'}
+      </div>
+    </div>`;
+  } else if (tab === 'workplace') {
+    const wp = await BES.api.workplace(gameId);
+    const prop = wp.property || {};
+    const flags = wp.flags || {};
+    panel = `<div class="side-stack">
+      <div class="card">
+        <h3>Workplace</h3>
+        <p>Kind: <strong>${BES.escape(prop.kind || 'none')}</strong> · Reno ${prop.renovationLevel || 0}/3</p>
+        <p class="muted">Monthly occupancy ${BES.money(prop.monthlyCost)} · Asset ${BES.money(prop.assetValue)}</p>
+        <p class="muted">Work mode ${BES.escape(flags.workMode || 'undecided')} · Housing ${BES.escape(flags.housing || 'none')}</p>
+        <div class="row" style="margin-top:12px">
+          <button class="btn btn-primary" data-place="rent-office">Rent office</button>
+          <button class="btn" data-place="buy-office">Buy office</button>
+          <button class="btn" data-place="renovate">Renovate</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Rooms</h3>
+        <div class="room-grid">
+          ${(prop.rooms || [])
+            .map((r) => {
+              const occ = (wp.people || []).find((p) => p.personId === r.occupantId);
+              return `<div class="room"><strong>${BES.escape(r.label)}</strong><div class="muted">Quality ${r.quality}</div><div>${occ ? BES.escape(occ.name) : 'Empty'}</div>
+                <select data-room="${BES.escape(r.id)}">
+                  <option value="">Assign…</option>
+                  ${(wp.people || []).map((p) => `<option value="${BES.escape(p.personId)}">${BES.escape(p.name)}</option>`).join('')}
+                </select></div>`;
+            })
+            .join('') || '<p class="muted">No rooms until you rent or buy.</p>'}
+        </div>
+      </div>
+      <div class="card">
+        <h3>Policies</h3>
+        <p class="muted">Car: ${BES.escape(flags.carPolicy || 'none')} · Fuel: ${BES.escape(flags.fuelPolicy || 'none')}</p>
+        <p class="hint">Car policy</p>
+        <div class="row">
+          <button class="btn" data-car="none">None</button>
+          <button class="btn" data-car="allowance">Allowance</button>
+          <button class="btn" data-car="company-cars">Company cars</button>
+        </div>
+        <p class="hint">Fuel policy</p>
+        <div class="row">
+          <button class="btn" data-fuel="none">None</button>
+          <button class="btn" data-fuel="capped">Capped</button>
+          <button class="btn" data-fuel="unlimited">Unlimited</button>
+        </div>
+      </div>
+    </div>`;
   } else if (tab === 'market') {
     const { market } = await BES.api.market(gameId);
+    const intel = await BES.api.competitors(gameId);
     const ach = await BES.api.achievements(gameId);
     panel = `<div class="side-stack">
       <div class="card"><h3>Market</h3>
         <p>Condition: <strong>${BES.escape(market?.economicCondition || 'unknown')}</strong></p>
-        <p class="muted">Growth ${market?.marketGrowth}% · Inflation ${market?.inflation}% · Rates ${market?.interestRate}% · Demand ${market?.consumerDemand} · Competition ${Math.round((market?.competitionIntensity || 0) * 100)}%</p>
+        <p class="muted">Growth ${market?.marketGrowth}% · Inflation ${market?.inflation}% · Rates ${market?.interestRate}% · Demand ${market?.consumerDemand} · Competition ${Math.round((market?.competitionIntensity || intel.competitionIntensity || 0) * 100)}%</p>
+      </div>
+      <div class="card">
+        <h3>Rivals</h3>
+        ${(intel.competitors || [])
+          .map(
+            (c) =>
+              `<div class="list-item"><div><strong>${BES.escape(c.name)}</strong><div class="muted">Aggression ${Math.round(c.aggression * 100)} · Price pressure ${Math.round(c.pricePressure * 100)} · Quality ${c.quality}</div></div></div>`
+          )
+          .join('')}
+        <button class="btn btn-primary btn-block" id="intel-btn" style="margin-top:12px">Commission analysis ($8,000)</button>
+        <p class="hint">Can leak. Rivals notice loud strategy theater.</p>
+        ${(intel.intel?.suggestions || [])
+          .map(
+            (s) =>
+              `<div class="list-item"><div><strong>${BES.escape(s.title)}</strong><div class="muted">${BES.escape(s.risk)} risk · ${BES.escape(s.lesson)}</div></div><button class="btn" data-pursue="${BES.escape(s.id)}">Pursue</button></div>`
+          )
+          .join('')}
       </div>
       <div class="card"><h3>Achievements</h3>
         ${ach.unlocked.map((a) => `<div class="list-item"><strong>${BES.escape(a.title)}</strong><span class="badge active">unlocked</span></div>`).join('')}
@@ -384,6 +523,7 @@ async function renderGame(gameId, tab = 'situation') {
     ['financials', 'Financials'],
     ['projects', 'Projects'],
     ['people', 'People'],
+    ['workplace', 'Workplace'],
     ['market', 'Market'],
     ['history', 'History']
   ];
@@ -406,8 +546,10 @@ async function renderGame(gameId, tab = 'situation') {
         <div class="card">
           <div class="label muted">FOUNDER</div>
           <h3 style="margin:6px 0">${BES.escape(game.founderName)}</h3>
-          <p class="muted">Month ${st.gameMonth} · Version ${st.version}</p>
+          ${profBar(st.state.founderProfessionalism)}
+          <p class="muted">Month ${st.gameMonth} · Version ${st.version} · Team ${st.state.employees || 0}</p>
           <p>Quality ${Math.round(st.state.quality)} · Morale ${Math.round(st.state.employeeMorale)} · Debt ${BES.money(st.state.debt)}</p>
+          <p class="hint">${BES.escape(st.flags?.workMode || 'undecided')} · ${BES.escape(st.flags?.housing || 'none')} · focus ${BES.escape(st.flags?.founderFocus || 'none')}</p>
         </div>
         ${
           (st.pendingConsequences || []).length
@@ -419,8 +561,13 @@ async function renderGame(gameId, tab = 'situation') {
       </div>
     </div>
     <nav class="bottom-nav">
-      ${tabs
-        .slice(0, 5)
+      ${[
+        ['situation', 'Now'],
+        ['people', 'People'],
+        ['workplace', 'Office'],
+        ['market', 'Market'],
+        ['financials', 'Money']
+      ]
         .map((t) => `<button data-tab="${t[0]}" class="${tab === t[0] ? 'active' : ''}">${t[1]}</button>`)
         .join('')}
     </nav>
@@ -444,19 +591,68 @@ async function renderGame(gameId, tab = 'situation') {
           expectedStateVersion: st.version,
           idempotencyKey: BES.uuid()
         });
-        showOutcome(result.outcome, () => {
-          if (result.newState.status === 'failed' || result.newState.status === 'completed') {
-            renderGame(gameId, 'situation');
-          } else {
-            renderGame(gameId, 'situation');
-          }
-        });
+        showOutcome(
+          result.outcome,
+          () => renderGame(gameId, 'situation'),
+          result.newState?.state?.founderProfessionalism
+        );
       } catch (err) {
         toast(err.message);
         btn.disabled = false;
         if (err.code === 'STALE_STATE_VERSION') renderGame(gameId, 'situation');
       }
     })
+  );
+
+  const bindOps = (selector, eventName, handler) => {
+    appEl.querySelectorAll(selector).forEach((el) => {
+      el.addEventListener(eventName, async () => {
+        if (ended) return;
+        el.disabled = true;
+        try {
+          await handler(el);
+        } catch (err) {
+          toast(err.message);
+          el.disabled = false;
+          if (err.code === 'STALE_STATE_VERSION') renderGame(gameId, tab);
+        }
+      });
+    });
+  };
+
+  bindOps('[data-focus]', 'click', (el) =>
+    runAction(gameId, st.version, 'founder-focus', { focus: el.dataset.focus }, tab)
+  );
+  bindOps('[data-hire]', 'click', (el) => runAction(gameId, st.version, 'hire', { role: el.dataset.hire }, tab));
+  bindOps('[data-act]', 'click', (el) => {
+    const card = el.closest('[data-person]');
+    return runAction(gameId, st.version, el.dataset.act, { personId: card?.dataset.person }, tab);
+  });
+  bindOps('[data-assign-project]', 'change', (el) => {
+    if (!el.value) {
+      el.disabled = false;
+      return Promise.resolve();
+    }
+    const card = el.closest('[data-person]');
+    return runAction(gameId, st.version, 'assign-project', { personId: card?.dataset.person, projectId: el.value }, tab);
+  });
+  bindOps('[data-place]', 'click', (el) => runAction(gameId, st.version, el.dataset.place, {}, tab));
+  bindOps('[data-car]', 'click', (el) =>
+    runAction(gameId, st.version, 'set-policy', { carPolicy: el.dataset.car }, tab)
+  );
+  bindOps('[data-fuel]', 'click', (el) =>
+    runAction(gameId, st.version, 'set-policy', { fuelPolicy: el.dataset.fuel }, tab)
+  );
+  bindOps('[data-room]', 'change', (el) => {
+    if (!el.value) {
+      el.disabled = false;
+      return Promise.resolve();
+    }
+    return runAction(gameId, st.version, 'assign-room', { roomId: el.dataset.room, personId: el.value }, tab);
+  });
+  bindOps('#intel-btn', 'click', () => runAction(gameId, st.version, 'commission-intel', {}, tab));
+  bindOps('[data-pursue]', 'click', (el) =>
+    runAction(gameId, st.version, 'pursue-suggestion', { suggestionId: el.dataset.pursue }, tab)
   );
 }
 

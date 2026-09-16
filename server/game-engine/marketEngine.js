@@ -2,9 +2,11 @@ const { clamp, round1 } = require('../utils/sanitize');
 
 const CONDITIONS = ['boom', 'normal', 'slowdown', 'recession'];
 
+const competitorEngine = require('./competitorEngine');
+
 function initialMarket(industryConfig) {
   const m = industryConfig.initialMarket || {};
-  return {
+  return competitorEngine.ensureCompetitors({
     asOfLevel: 1,
     marketGrowth: m.marketGrowth ?? 3.5,
     inflation: m.inflation ?? 5.5,
@@ -14,7 +16,7 @@ function initialMarket(industryConfig) {
     economicCondition: m.economicCondition ?? 'normal',
     technologyTrend: m.technologyTrend ?? 'steady',
     conditionRemaining: 0
-  };
+  });
 }
 
 function tickMarket(market, state, level, rng) {

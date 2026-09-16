@@ -1,6 +1,6 @@
 const GameService = require('../services/GameService');
 const IndustryConfigService = require('../services/IndustryConfigService');
-const { parse, createGameSchema, previewSchema, decisionSchema } = require('../validators');
+const { parse, createGameSchema, previewSchema, decisionSchema, actionSchema } = require('../validators');
 const { ok, created } = require('../utils/http');
 
 async function list(req, res, next) {
@@ -129,6 +129,43 @@ async function employees(req, res, next) {
   }
 }
 
+async function people(req, res, next) {
+  try {
+    const data = await GameService.listPeople(req.userId, req.params.gameId);
+    return ok(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function workplace(req, res, next) {
+  try {
+    const data = await GameService.workplace(req.userId, req.params.gameId);
+    return ok(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function competitors(req, res, next) {
+  try {
+    const data = await GameService.competitors(req.userId, req.params.gameId);
+    return ok(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function act(req, res, next) {
+  try {
+    const body = parse(actionSchema, req.body);
+    const data = await GameService.submitAction(req.userId, req.params.gameId, body);
+    return ok(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function achievements(req, res, next) {
   try {
     const data = await GameService.listAchievements(req.userId, req.params.gameId);
@@ -178,6 +215,10 @@ module.exports = {
   financials,
   projects,
   employees,
+  people,
+  workplace,
+  competitors,
+  act,
   achievements,
   market,
   restart,

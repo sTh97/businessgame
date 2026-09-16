@@ -29,13 +29,28 @@ const events = [
       d('swh-01-founding-bet-A', 'swh-01-founding-bet', 'Stay remote and run lean', {
         summary: 'Protect cash. Slower brand, higher focus.',
         tone: 'cautious',
+        professionalismDelta: 2,
+        setFlags: { workMode: 'remote', housing: 'none' },
         directEffects: { cash: 8000, brandStrength: -4, employeeMorale: 4, monthlyExpenses: -1500 },
         hiddenEffects: { technicalDebt: 4 }
       }),
       d('swh-01-founding-bet-B', 'swh-01-founding-bet', 'Lease a small studio office', {
         summary: 'Look legitimate. Burn cash. Lift morale.',
         tone: 'bold',
-        directEffects: { cash: -18000, reputation: 6, brandStrength: 8, employeeMorale: 8, monthlyExpenses: 2500 }
+        professionalismDelta: 3,
+        setFlags: { workMode: 'office', housing: 'rent' },
+        setProperty: {
+          kind: 'rented',
+          monthlyCost: 2500,
+          assetValue: 0,
+          renovationLevel: 0,
+          rooms: [
+            { id: 'room-1', label: 'Founder den', quality: 55, occupantId: null },
+            { id: 'room-2', label: 'Build bay', quality: 50, occupantId: null },
+            { id: 'room-3', label: 'Quiet room', quality: 48, occupantId: null }
+          ]
+        },
+        directEffects: { cash: -18000, reputation: 6, brandStrength: 8, employeeMorale: 8 }
       }),
       d('swh-01-founding-bet-C', 'swh-01-founding-bet', 'Take a founder-friendly micro loan', {
         summary: 'Buy time with debt. Interest starts now.',
@@ -64,12 +79,14 @@ const events = [
       d('swh-02-first-hire-A', 'swh-02-first-hire', 'Hire the senior (expensive, fast)', {
         summary: 'Quality up. Burn rate up.',
         tone: 'bold',
+        professionalismDelta: 3,
         directEffects: { cash: -9000, quality: 8, operationalCapacity: 8 },
         workforceEffects: { hire: [{ role: 'developer', count: 1, skill: 82, morale: 62, productivity: 85 }] }
       }),
       d('swh-02-first-hire-B', 'swh-02-first-hire', 'Hire two juniors', {
         summary: 'Capacity with training drag.',
         tone: 'neutral',
+        professionalismDelta: 1,
         directEffects: { quality: -4, employeeMorale: 3 },
         hiddenEffects: { technicalDebt: 6 },
         workforceEffects: {
@@ -81,11 +98,13 @@ const events = [
       d('swh-02-first-hire-C', 'swh-02-first-hire', 'Stay founder-only for now', {
         summary: 'Save cash. Capacity stays tight.',
         tone: 'cautious',
+        professionalismDelta: -1,
         directEffects: { cash: 4000, employeeMorale: -6, operationalCapacity: -6 }
       }),
       d('swh-02-first-hire-D', 'swh-02-first-hire', 'Hire a designer instead', {
         summary: 'Better pitches, weaker delivery bench.',
         tone: 'neutral',
+        professionalismDelta: 2,
         directEffects: { reputation: 4, brandStrength: 6, quality: 3 },
         workforceEffects: { hire: [{ role: 'designer', count: 1, skill: 70, morale: 72, productivity: 74 }] }
       })
@@ -170,15 +189,18 @@ const events = [
     eligibility: { cash: { lte: 90000 } },
     minLevel: 2,
     maxLevel: 12,
+    repeatable: true,
     decisions: [
       d('swh-04-cash-crunch-A', 'swh-04-cash-crunch', 'Founder skips salary this month', {
         summary: 'Buy runway. Personal strain.',
         tone: 'cautious',
+        professionalismDelta: 3,
         directEffects: { cash: 8000, employeeMorale: -3 }
       }),
       d('swh-04-cash-crunch-B', 'swh-04-cash-crunch', 'Chase the invoice aggressively', {
         summary: 'Might collect. Might sour the account.',
         tone: 'bold',
+        professionalismDelta: 1,
         probabilityEffects: [
           pe('collectInvoice', 0.7, { cash: 18000, reputation: -2 }, { reputation: -6, customers: -1 }, reputationMod)
         ]
@@ -186,11 +208,13 @@ const events = [
       d('swh-04-cash-crunch-C', 'swh-04-cash-crunch', 'Draw a short-term credit line', {
         summary: 'Cash now. Debt and interest later.',
         tone: 'risky',
+        professionalismDelta: -1,
         directEffects: { cash: 25000, debt: 25000 }
       }),
       d('swh-04-cash-crunch-D', 'swh-04-cash-crunch', 'Delay a contractor payment', {
         summary: 'Quiet damage to your vendor reputation.',
         tone: 'risky',
+        professionalismDelta: -5,
         directEffects: { cash: 9000, reputation: -4, quality: -3 },
         delayedEffects: [
           { triggerLevel: '+4', probability: 0.45, label: 'A contractor refuses to work with you again', effects: { operationalCapacity: -8, reputation: -4 } }
@@ -442,6 +466,7 @@ const events = [
     narrative:
       'A client WhatsApps at 1:14 a.m.: checkout is dead. Your on-call rotation is "whoever is awake."',
     minLevel: 4,
+    repeatable: true,
     decisions: [
       d('swh-10-server-outage-A', 'swh-10-server-outage', 'All-hands until it is fixed', {
         summary: 'Save the account. Burn the team.',
@@ -771,27 +796,59 @@ const events = [
     narrative:
       'Headcount no longer fits on one Slack huddle and a dining table. A landlord offers 18 months at a "founder rate" that is still a lot of rent.',
     minLevel: 13,
+    once: true,
     eligibility: { employees: { gte: 6 } },
+    forbidsFlags: { housing: 'none', workMode: 'remote' },
+    requiresFlags: { workMode: ['office', 'hybrid'] },
     decisions: [
       d('swh-19-office-expansion-A', 'swh-19-office-expansion', 'Sign the lease', {
         summary: 'Signal. Fixed cost.',
         tone: 'bold',
-        directEffects: { cash: -22000, monthlyExpenses: 4500, brandStrength: 10, employeeMorale: 8, reputation: 4 }
+        professionalismDelta: 2,
+        setFlags: { workMode: 'office', housing: 'rent' },
+        setProperty: {
+          kind: 'rented',
+          monthlyCost: 4500,
+          rooms: [
+            { id: 'room-1', label: 'Founder den', quality: 58, occupantId: null },
+            { id: 'room-2', label: 'Build bay', quality: 54, occupantId: null },
+            { id: 'room-3', label: 'Quiet room', quality: 52, occupantId: null },
+            { id: 'room-4', label: 'Client parlor', quality: 60, occupantId: null }
+          ]
+        },
+        directEffects: { cash: -22000, brandStrength: 10, employeeMorale: 8, reputation: 4 }
       }),
       d('swh-19-office-expansion-B', 'swh-19-office-expansion', 'Flexible coworking for the core team', {
         summary: 'Optionality.',
         tone: 'neutral',
-        directEffects: { cash: -6000, monthlyExpenses: 1800, employeeMorale: 4, brandStrength: 3 }
+        setFlags: { workMode: 'hybrid', housing: 'coworking' },
+        setProperty: {
+          kind: 'coworking',
+          monthlyCost: 1800,
+          rooms: [{ id: 'room-1', label: 'Hot desk', quality: 46, occupantId: null }]
+        },
+        directEffects: { cash: -6000, employeeMorale: 4, brandStrength: 3 }
       }),
       d('swh-19-office-expansion-C', 'swh-19-office-expansion', 'Remain remote and bank the rent', {
         summary: 'Cash over theater.',
         tone: 'cautious',
+        setFlags: { workMode: 'remote', housing: 'none' },
+        setProperty: { kind: 'none', monthlyCost: 0, rooms: [] },
         directEffects: { cash: 5000, employeeMorale: -4, brandStrength: -2 }
       }),
       d('swh-19-office-expansion-D', 'swh-19-office-expansion', 'Hot-desk a client-facing showroom only', {
         summary: 'Sales room, not a campus.',
         tone: 'neutral',
-        directEffects: { cash: -10000, monthlyExpenses: 2200, reputation: 5, brandStrength: 6 }
+        setFlags: { workMode: 'hybrid', housing: 'rent' },
+        setProperty: {
+          kind: 'rented',
+          monthlyCost: 2200,
+          rooms: [
+            { id: 'room-1', label: 'Showroom', quality: 62, occupantId: null },
+            { id: 'room-2', label: 'Hot desk', quality: 48, occupantId: null }
+          ]
+        },
+        directEffects: { cash: -10000, reputation: 5, brandStrength: 6 }
       })
     ]
   },
@@ -1228,6 +1285,135 @@ const events = [
         summary: 'Aligned with the spirit of the program.',
         tone: 'cautious',
         directEffects: { cash: 8000, employeeMorale: 6, quality: 4 }
+      })
+    ]
+  },
+  {
+    _id: 'swh-remote-client-address',
+    phaseEligible: ['survival', 'early-growth'],
+    category: 'customer',
+    title: 'They Want a Real Address',
+    narrative:
+      'A prospect asks for a registered office, not a Google Meet link. You chose remote. This is the bill coming due — not a landlord invoice.',
+    requiresFlags: { housing: 'none' },
+    repeatable: true,
+    minLevel: 4,
+    maxLevel: 28,
+    decisions: [
+      d('swh-remote-client-address-A', 'swh-remote-client-address', 'Take a coworking membership', {
+        summary: 'An address without a lease.',
+        tone: 'neutral',
+        setFlags: { workMode: 'hybrid', housing: 'coworking' },
+        setProperty: { kind: 'coworking', monthlyCost: 1600, rooms: [{ id: 'room-1', label: 'Hot desk', quality: 45, occupantId: null }] },
+        directEffects: { cash: -4000, reputation: 4, brandStrength: 3 }
+      }),
+      d('swh-remote-client-address-B', 'swh-remote-client-address', 'Use a virtual office and stay remote', {
+        summary: 'Cheap signal. Thin if they visit.',
+        tone: 'cautious',
+        professionalismDelta: -1,
+        directEffects: { cash: -1200, monthlyExpenses: 200, reputation: 1 }
+      }),
+      d('swh-remote-client-address-C', 'swh-remote-client-address', 'Walk — clients who need carpet are not ours', {
+        summary: 'Protect the remote bet.',
+        tone: 'bold',
+        professionalismDelta: 2,
+        directEffects: { brandStrength: 3, customers: 0, employeeMorale: 3 }
+      }),
+      d('swh-remote-client-address-D', 'swh-remote-client-address', 'Rent a small studio after all', {
+        summary: 'Reverse the founding bet.',
+        tone: 'bold',
+        setFlags: { workMode: 'office', housing: 'rent' },
+        setProperty: {
+          kind: 'rented',
+          monthlyCost: 3200,
+          rooms: [
+            { id: 'room-1', label: 'Studio', quality: 52, occupantId: null },
+            { id: 'room-2', label: 'Meeting nook', quality: 50, occupantId: null }
+          ]
+        },
+        directEffects: { cash: -14000, reputation: 5, employeeMorale: 6 }
+      })
+    ]
+  },
+  {
+    _id: 'swh-home-office-strain',
+    phaseEligible: ['survival', 'early-growth'],
+    category: 'employee',
+    title: 'Kitchen-Table Burnout',
+    narrative:
+      'Amina mentions her roommate’s band practices during standups. Remote is cheap. It is also someone else’s living room.',
+    requiresFlags: { workMode: 'remote' },
+    forbidsFlags: { housing: ['rent', 'own'] },
+    repeatable: true,
+    minLevel: 3,
+    maxLevel: 22,
+    decisions: [
+      d('swh-home-office-strain-A', 'swh-home-office-strain', 'Stipend for proper desks and internet', {
+        summary: 'Cash for dignity.',
+        tone: 'cautious',
+        professionalismDelta: 3,
+        directEffects: { cash: -6000, monthlyExpenses: 400, employeeMorale: 8, quality: 3 }
+      }),
+      d('swh-home-office-strain-B', 'swh-home-office-strain', 'Ignore it — everyone is remote these days', {
+        summary: 'Saves money. Spends goodwill.',
+        tone: 'risky',
+        professionalismDelta: -4,
+        directEffects: { employeeMorale: -10, quality: -3 }
+      }),
+      d('swh-home-office-strain-C', 'swh-home-office-strain', 'Trial a coworking two days a week', {
+        summary: 'Halfway house.',
+        tone: 'neutral',
+        setFlags: { workMode: 'hybrid', housing: 'coworking' },
+        setProperty: { kind: 'coworking', monthlyCost: 1400 },
+        setProperty: {
+          kind: 'coworking',
+          monthlyCost: 1400,
+          rooms: [{ id: 'room-1', label: 'Hot desk', quality: 44, occupantId: null }]
+        },
+        directEffects: { cash: -3500, employeeMorale: 5 }
+      }),
+      d('swh-home-office-strain-D', 'swh-home-office-strain', 'Let people expense cafes with a cap', {
+        summary: 'Flexible, messy receipts.',
+        tone: 'neutral',
+        directEffects: { cash: -2000, monthlyExpenses: 500, employeeMorale: 4 }
+      })
+    ]
+  },
+  {
+    _id: 'swh-fuel-card-abuse',
+    phaseEligible: ['early-growth', 'expansion'],
+    category: 'employee',
+    title: 'The Fuel Card Story',
+    narrative:
+      'Unlimited fuel sounded generous. Finance found weekend trips coded as “client visits.” Policy is culture with a receipt.',
+    requiresFlags: { fuelPolicy: 'unlimited' },
+    repeatable: true,
+    minLevel: 8,
+    decisions: [
+      d('swh-fuel-card-abuse-A', 'swh-fuel-card-abuse', 'Cap it and publish the rule', {
+        summary: 'Adult policy.',
+        tone: 'cautious',
+        professionalismDelta: 4,
+        setFlags: { fuelPolicy: 'capped' },
+        directEffects: { employeeMorale: -4, monthlyExpenses: -400 }
+      }),
+      d('swh-fuel-card-abuse-B', 'swh-fuel-card-abuse', 'Fire the offender in public', {
+        summary: 'Deterrence theater.',
+        tone: 'risky',
+        professionalismDelta: -3,
+        directEffects: { employeeMorale: -12, reputation: -2 }
+      }),
+      d('swh-fuel-card-abuse-C', 'swh-fuel-card-abuse', 'Keep unlimited — trust until you cannot', {
+        summary: 'Culture of faith.',
+        tone: 'bold',
+        professionalismDelta: -2,
+        directEffects: { employeeMorale: 3, monthlyExpenses: 300 }
+      }),
+      d('swh-fuel-card-abuse-D', 'swh-fuel-card-abuse', 'Remove fuel entirely', {
+        summary: 'Cheapest. Coldest.',
+        tone: 'cautious',
+        setFlags: { fuelPolicy: 'none' },
+        directEffects: { employeeMorale: -8, monthlyExpenses: -800 }
       })
     ]
   },

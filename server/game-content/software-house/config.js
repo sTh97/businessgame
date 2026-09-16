@@ -54,7 +54,8 @@ const softwareHouseConfig = {
     companyValue: 220000,
     netProfit: -8000,
     operatingProfit: -8000,
-    otherExpenses: 0
+    otherExpenses: 0,
+    founderProfessionalism: 55
   },
   startingIndustryState: {
     deliveryRisk: 0,
@@ -85,6 +86,56 @@ const softwareHouseConfig = {
     { id: 'pm', title: 'Project Manager', salary: 8000, output: 4 },
     { id: 'qa', title: 'QA Engineer', salary: 5000, output: 5 },
     { id: 'sales', title: 'Sales', salary: 6000, output: 3 }
+  ],
+  startingPeople: [
+    {
+      personId: 'starter-amina',
+      name: 'Amina Shah',
+      role: 'developer',
+      title: 'Developer',
+      professionalism: 64,
+      salary: 1500,
+      morale: 72,
+      skill: 58,
+      productivity: 72,
+      isManager: false,
+      assignedProjectId: null,
+      assignedRoomId: null,
+      taskBurndown: { assigned: 0, remaining: 0 },
+      status: 'active'
+    },
+    {
+      personId: 'starter-omar',
+      name: 'Omar Rizvi',
+      role: 'developer',
+      title: 'Developer',
+      professionalism: 58,
+      salary: 1500,
+      morale: 68,
+      skill: 55,
+      productivity: 70,
+      isManager: false,
+      assignedProjectId: null,
+      assignedRoomId: null,
+      taskBurndown: { assigned: 0, remaining: 0 },
+      status: 'active'
+    },
+    {
+      personId: 'starter-lea',
+      name: 'Lea Chen',
+      role: 'pm',
+      title: 'Project Manager',
+      professionalism: 70,
+      salary: 1000,
+      morale: 66,
+      skill: 62,
+      productivity: 68,
+      isManager: true,
+      assignedProjectId: null,
+      assignedRoomId: null,
+      taskBurndown: { assigned: 0, remaining: 0 },
+      status: 'active'
+    }
   ],
   startingWorkforce: [
     { role: 'developer', title: 'Developer', count: 2, avgSkill: 58, avgMorale: 70, avgProductivity: 72, unitSalary: 1500, totalSalary: 3000 },
@@ -199,6 +250,7 @@ function stubConfig(stub) {
     initialMarket: { ...softwareHouseConfig.initialMarket },
     roles: [],
     startingWorkforce: [],
+    startingPeople: [],
     scoreBenchmarks: softwareHouseConfig.scoreBenchmarks,
     failureConditions: []
   };

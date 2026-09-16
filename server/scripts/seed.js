@@ -53,11 +53,6 @@ async function seedAll() {
 }
 
 async function seedIfNeeded() {
-  const count = await events.countDocuments({ industry: 'software-house' });
-  if (count > 0) {
-    logger.info('content_present', { events: count });
-    return;
-  }
   await seedAll();
 }
 
