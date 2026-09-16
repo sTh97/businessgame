@@ -43,7 +43,8 @@ The UI is served as static files from `client/`. Auth, saves, and gameplay run a
    | `CORS_ORIGINS` | `https://YOUR-SITE.netlify.app` |
    | `PUBLIC_APP_URL` | `https://YOUR-SITE.netlify.app` |
 
-4. Trigger a new deploy. The static client is published as-is; industry content is seeded into MongoDB on the first API request (`seedIfNeeded`), not during the Netlify build.
-5. Open `https://YOUR-SITE.netlify.app`. `https://YOUR-SITE.netlify.app/api/health` should return `{"success":true,"data":{"ok":true}}`.
+4. Add the variables **before** deploying. The build copies them into the function bundle; if `MONGODB_URI` (or the JWT/CSRF secrets) are missing, the Netlify build will fail on purpose. Use the short Atlas `mongodb+srv://` URI, not the long replica-host string.
+5. Trigger a new deploy. Industry content is seeded into MongoDB on the first API request (`seedIfNeeded`).
+6. Open `https://YOUR-SITE.netlify.app`. `https://YOUR-SITE.netlify.app/api/health` should return `{"success":true,"data":{"ok":true}}`.
 
-If the API returns `BOOT_FAILED` / `Missing required environment variable`, the variables above are missing in Netlify. Add them under **Site configuration → Environment variables**, then redeploy. Do not put Atlas credentials in `netlify.toml`.
+Local `.env` is gitignored and never reaches Netlify. Values in `netlify.toml` are also not passed to functions. If `/api/health` returns `BOOT_FAILED`, the variables are not set on **that** Netlify site — add them, then **Trigger deploy → Deploy site**.

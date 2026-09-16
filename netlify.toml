@@ -1,5 +1,5 @@
 [build]
-  command = "npm install"
+  command = "npm install && node server/scripts/write-runtime-env.js"
   publish = "client"
   functions = "netlify/functions"
 

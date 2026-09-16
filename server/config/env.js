@@ -1,10 +1,55 @@
+const fs = require('fs');
 const path = require('path');
+
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+
+function tryReadJson(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch {
+    /* ignore unreadable snapshot */
+  }
+  return null;
+}
+
+const runtimeEnvPaths = [
+  path.join(__dirname, '..', '.runtime-env.json'),
+  path.join(process.cwd(), 'server', '.runtime-env.json'),
+  path.join(process.cwd(), '.runtime-env.json'),
+  path.join(__dirname, '.runtime-env.json'),
+  path.join(__dirname, 'server', '.runtime-env.json'),
+  path.join(__dirname, '..', '..', 'server', '.runtime-env.json')
+];
+
+for (const filePath of runtimeEnvPaths) {
+  const parsed = tryReadJson(filePath);
+  if (!parsed || typeof parsed !== 'object') continue;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (value == null || value === '') continue;
+    if (process.env[key] == null || process.env[key] === '') {
+      process.env[key] = String(value);
+    }
+  }
+  break;
+}
+
+if (!process.env.CORS_ORIGINS && process.env.URL) {
+  process.env.CORS_ORIGINS = process.env.URL;
+}
+if (!process.env.PUBLIC_APP_URL && process.env.URL) {
+  process.env.PUBLIC_APP_URL = process.env.URL;
+}
 
 function required(name) {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+    const onNetlify = process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const hint = onNetlify
+      ? ` Add ${name} in Netlify → Site configuration → Environment variables (all scopes), then trigger a new deploy. Local .env and netlify.toml are not available to this function.`
+      : '';
+    throw new Error(`Missing required environment variable: ${name}.${hint}`);
   }
   return value;
 }
