@@ -43,7 +43,7 @@ The UI is served as static files from `client/`. Auth, saves, and gameplay run a
    | `CORS_ORIGINS` | `https://YOUR-SITE.netlify.app` |
    | `PUBLIC_APP_URL` | `https://YOUR-SITE.netlify.app` |
 
-4. Add the variables **before** deploying. The build copies them into the function bundle; if `MONGODB_URI` (or the JWT/CSRF secrets) are missing, the Netlify build will fail on purpose. Use the short Atlas `mongodb+srv://` URI, not the long replica-host string.
+4. Add the variables **before** deploying. The build copies them into the function bundle. Use the short Atlas `mongodb+srv://` URI when possible. `CORS_ORIGINS` / `PUBLIC_APP_URL` default to the Netlify site URL if omitted. `CSRF_SECRET` falls back to `JWT_ACCESS_SECRET` if omitted.
 5. Trigger a new deploy. Industry content is seeded into MongoDB on the first API request (`seedIfNeeded`).
 6. Open `https://YOUR-SITE.netlify.app`. `https://YOUR-SITE.netlify.app/api/health` should return `{"success":true,"data":{"ok":true}}`.
 

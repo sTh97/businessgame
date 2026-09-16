@@ -41,6 +41,9 @@ if (!process.env.CORS_ORIGINS && process.env.URL) {
 if (!process.env.PUBLIC_APP_URL && process.env.URL) {
   process.env.PUBLIC_APP_URL = process.env.URL;
 }
+if (!process.env.CSRF_SECRET && process.env.JWT_ACCESS_SECRET) {
+  process.env.CSRF_SECRET = process.env.JWT_ACCESS_SECRET;
+}
 
 function required(name) {
   const value = process.env[name];

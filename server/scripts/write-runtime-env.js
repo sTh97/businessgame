@@ -31,17 +31,5 @@ console.log(`Wrote ${path.basename(dest)} with keys: ${Object.keys(snapshot).joi
 
 const missing = REQUIRED.filter((key) => !process.env[key]);
 if (missing.length) {
-  console.error(`
-Missing required environment variables: ${missing.join(', ')}
-
-Netlify Functions cannot read your local .env file, and netlify.toml
-cannot pass secrets to functions.
-
-1. Netlify → Site configuration → Environment variables
-2. Add these with scopes All (Builds + Functions), context Production:
-   ${REQUIRED.join(', ')}
-3. Prefer the short mongodb+srv:// Atlas URI (long replica-host URIs can be dropped)
-4. Trigger deploy → Deploy site
-`);
-  process.exit(1);
+  console.warn(`Warning: not set at build time: ${missing.join(', ')}. The API will use runtime env or fallbacks.`);
 }
